@@ -6,18 +6,20 @@ import java.util.ArrayList;
 import java.util.Deque;
 import java.util.List;
 import java.util.NoSuchElementException;
+import java.util.function.Predicate;
 
 public class JavaMath {
   private final List<MathElement> output = new ArrayList<>();
   private final Deque<MathOperator> ostack = new ArrayDeque<>();
 
-  private int start;
   private int index;
+  private boolean expectOp;
 
   private String lastError = null;
 
   public Double eval(final String input) {
-    if (!pfx(input)) return null;
+    if (!pfx(input))
+      return null;
     return exec();
   }
 
@@ -38,10 +40,8 @@ public class JavaMath {
 
     input = input.trim();
     final int len = input.length();
-    start = 0;
-    boolean expectOp = false;
+    expectOp = false;
     char chr;
-    char last = ' ';
 
     for (index = 0; index < len; index++) {
       chr = input.charAt(index);
@@ -49,20 +49,15 @@ public class JavaMath {
       // handle character
       // parses numbers, resolves operator precedence
       try {
-        expectOp = handleChar(input, chr, last, expectOp);
+        expectOp = handleChar(input, chr, len);
       } catch (final InvalidObjectException exception) {
         lastError = exception.getMessage();
         return false;
       }
-
-      last = chr;
     }
 
-    // finish last number
-    addNum(input);
-
     // check valid operation
-    if (!isNumber(last) && !expectOp) { // operator at end
+    if (!expectOp) { // operator at end
       lastError = "cannot end in operator";
       return false;
     }
@@ -76,6 +71,8 @@ public class JavaMath {
       }
       output.add(op);
     }
+
+    System.out.println(output);
 
     return true;
   }
@@ -115,37 +112,21 @@ public class JavaMath {
   }
 
   /**
-   * Parse previous character(s) as number and add to output
-   */
-  private void addNum(final String str) {
-    if (start < index) { // actually started new number?
-      output.add(new MathSymbol(str.substring(start, index)));
-      start = index + 1;
-    } else {
-      ++start;
-    }
-  }
-
-  /**
    * Check character in input string and parse Updates expectOp
    */
-  private boolean handleChar(final String input, final char chr, final char last, boolean expectOp)
-      throws InvalidObjectException {
+  private boolean handleChar(final String input, final char chr, final int len) throws InvalidObjectException {
     // check current symbol
     if (isNumber(chr)) {
       if (expectOp)
-        expectOp = handleOp(MathOperator.MULT, expectOp); // implicit multiplication
+        handleOp(MathOperator.MULT); // implicit multiplication
 
-    } else if (chr == ' ') {
-      addNum(input); // finish number / advance counter
-      // just finished a number, operator expected next
-      if (isNumber(last))
-        expectOp = true;
+      output.add(new MathSymbol(consume(input, len, this::isNumber)));
+      expectOp = true;
 
     } else if (MathOperator.is(chr)) {
-      expectOp = handleOp(input, chr, last, expectOp);
+      handleOp(chr);
 
-    } else {
+    } else if (chr != ' ') { // ignore whitespace, rest is invalid
       throw new InvalidObjectException("invalid character");
     }
 
@@ -153,31 +134,34 @@ public class JavaMath {
   }
 
   /**
+   * Consume characters that fit predicate and return consumed characters
+   */
+  private String consume(String input, int len, Predicate<Character> check) {
+    int start = index;
+    while (++index < len && check.test(input.charAt(index)))
+      ; // go to end of number
+    index--;
+    return input.substring(start, index + 1);
+  }
+
+  /**
    * Operator handling wrapper Updates expectOp
    */
-  private boolean handleOp(final String input, final char chr, final char last, boolean expectOp)
-      throws InvalidObjectException {
-    final MathOperator op = MathOperator.get(chr);
-    addNum(input); // finish number / advance counter
-
-    // just finished a number, operator expected next (can also be set after ' ')
-    if (isNumber(last))
-      expectOp = true;
-
-    return handleOp(op, expectOp);
+  private void handleOp(final char chr) throws InvalidObjectException {
+    handleOp(MathOperator.get(chr));
   }
 
   /**
    * Handle operator (precedence) Updates expectOp
    */
-  private boolean handleOp(final MathOperator op, boolean expectOp) throws InvalidObjectException {
+  private void handleOp(final MathOperator op) throws InvalidObjectException {
     // no two operators allowed except negation
     if (!expectOp) {
       // convert to unary negation
       // e.x. (-digit)
       if (op == MathOperator.MINUS) {
         ostack.push(MathOperator.NEG);
-        return false;
+        return;
       } else if (op != MathOperator.LBRACE) {
         throw new InvalidObjectException("unexpected operator");
       }
@@ -202,7 +186,5 @@ public class JavaMath {
         throw new InvalidObjectException("mismatched parentheses");
       }
     }
-
-    return expectOp;
   }
 }
