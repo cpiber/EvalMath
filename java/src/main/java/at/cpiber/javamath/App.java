@@ -29,17 +29,27 @@ public class App {
       if (input.equals(""))
         break;
 
-      System.out.print("Result: ");
-      out(input);
+      out(input, true);
     }
   }
 
-  public static void out(String input) {
+  /**
+   * Evalute and print result
+   * @param input infix string
+   * @param print whether to print errors + "Result: "
+   */
+  public static void out(String input, boolean print) {
     Double res = math.eval(input);
-    if (res == null) {
+    if (res == null && print) {
       System.out.print("Error: ");
       System.out.println(math.getError());
     }
+    if (print) 
+      System.out.print("Result: ");
     System.out.println(res);
+  }
+
+  public static void out(String input) {
+    out(input, false);
   }
 }
