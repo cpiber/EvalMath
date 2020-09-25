@@ -26,3 +26,7 @@ application {
     // Define the main class for the application.
     mainClassName = 'at.cpiber.javamath.App'
 }
+
+run {
+    standardInput = System.in
+}

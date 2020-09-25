@@ -3,12 +3,34 @@
  */
 package at.cpiber.javamath;
 
-public class App {
-    public String getGreeting() {
-        return "Hello world.";
-    }
+import java.io.BufferedReader;
+import java.io.IOException;
+import java.io.InputStreamReader;
 
-    public static void main(String[] args) {
-        System.out.println(new App().getGreeting());
+public class App {
+  private static JavaMath math = new JavaMath();
+
+  private App() {}
+
+  public static void main(String[] args) throws IOException {
+    String input = String.join(" ", args);
+
+    // parse arg
+    if (input != null && !input.equals("")) {
+      System.exit(math.eval(input));
     }
+    
+    // else enter interactive mode
+    BufferedReader in = new BufferedReader(new InputStreamReader(System.in));
+
+    while (true) {
+      // get equation from stdin
+      System.out.print("Enter equation: ");
+      input = in.readLine().trim();
+      if (input.equals("")) break;
+
+      System.out.print("Result: ");
+      System.out.println(math.eval(input));
+    }
+  }
 }
