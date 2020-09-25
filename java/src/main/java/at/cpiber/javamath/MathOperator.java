@@ -72,7 +72,7 @@ public enum MathOperator implements MathElement {
     } else if (this == MOD) {
       return new MathSymbol(op1 % op2);
     } else if (this == IDIV) {
-      return new MathSymbol(((int) op1) / op2);
+      return new MathSymbol((int) op1 / (int) op2);
     } else if (this == EXP) {
       return new MathSymbol(Math.pow(op1, op2));
     } else {
