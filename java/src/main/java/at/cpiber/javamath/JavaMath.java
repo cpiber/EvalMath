@@ -13,21 +13,28 @@ public class JavaMath {
 
   private int start;
   private int index;
-  
-  public int eval(final String input) {
-    final List<MathElement> math = pfx(input);
-    System.out.println(math);
-    return 0;
+
+  private String lastError = null;
+
+  public Double eval(final String input) {
+    if (!pfx(input)) return null;
+    return exec();
+  }
+
+  public String getError() {
+    return lastError;
   }
 
   /**
-   * Parse string to postfix list
+   * Parse infix string to postfix list
+   * 
    * @param input infix string
    * @return postfix list
    */
-  private List<MathElement> pfx(String input) {
+  private boolean pfx(String input) {
     output.clear();
     ostack.clear();
+    lastError = null;
 
     input = input.trim();
     final int len = input.length();
@@ -43,8 +50,9 @@ public class JavaMath {
       // parses numbers, resolves operator precedence
       try {
         expectOp = handleChar(input, chr, last, expectOp);
-      } catch (InvalidObjectException exception) {
-        return null;
+      } catch (final InvalidObjectException exception) {
+        lastError = exception.getMessage();
+        return false;
       }
 
       last = chr;
@@ -54,30 +62,62 @@ public class JavaMath {
     addNum(input);
 
     // check valid operation
-    if (!isNumber(last) && !expectOp) // operator at end
-      return null;
+    if (!isNumber(last) && !expectOp) { // operator at end
+      lastError = "cannot end in operator";
+      return false;
+    }
 
     // pop remaining operators
     while (!ostack.isEmpty()) {
-      MathOperator op = ostack.pop();
-      if (op == MathOperator.LBRACE) return null;
+      final MathOperator op = ostack.pop();
+      if (op == MathOperator.LBRACE) {
+        lastError = "mismatched parenthesis";
+        return false;
+      }
       output.add(op);
     }
 
-    return output;
+    return true;
+  }
+
+  /**
+   * Evaluate postfix list
+   */
+  private Double exec() {
+    final Deque<MathSymbol> stack = new ArrayDeque<>();
+
+    try {
+      for (final MathElement e : output) {
+        if (e.getType() == MathElement.Type.OP) {
+          stack.push(((MathOperator) e).exec(stack));
+        } else {
+          stack.push((MathSymbol) e);
+        }
+      }
+    } catch (final Exception exception) {
+      lastError = exception.getMessage();
+      return null;
+    }
+
+    if (stack.size() != 1) {
+      lastError = "internal error - stack invalid";
+      return null;
+    }
+
+    return stack.pop().get();
   }
 
   /**
    * Check if character is a number
    */
   private boolean isNumber(final char chr) {
-    return chr >= '0' && chr <= '9';
+    return chr >= '0' && chr <= '9' || chr == '.';
   }
 
   /**
    * Parse previous character(s) as number and add to output
    */
-  private void addNum(String str) {
+  private void addNum(final String str) {
     if (start < index) { // actually started new number?
       output.add(new MathSymbol(str.substring(start, index)));
       start = index + 1;
@@ -87,10 +127,10 @@ public class JavaMath {
   }
 
   /**
-   * Check character in input string and parse
-   * Updates expectOp
+   * Check character in input string and parse Updates expectOp
    */
-  private boolean handleChar(String input, char chr, char last, boolean expectOp) throws InvalidObjectException {
+  private boolean handleChar(final String input, final char chr, final char last, boolean expectOp)
+      throws InvalidObjectException {
     // check current symbol
     if (isNumber(chr)) {
       if (expectOp)
@@ -113,11 +153,11 @@ public class JavaMath {
   }
 
   /**
-   * Operator handling wrapper
-   * Updates expectOp
+   * Operator handling wrapper Updates expectOp
    */
-  private boolean handleOp(String input, char chr, char last, boolean expectOp) throws InvalidObjectException {
-    MathOperator op = MathOperator.get(chr);
+  private boolean handleOp(final String input, final char chr, final char last, boolean expectOp)
+      throws InvalidObjectException {
+    final MathOperator op = MathOperator.get(chr);
     addNum(input); // finish number / advance counter
 
     // just finished a number, operator expected next (can also be set after ' ')
@@ -128,10 +168,9 @@ public class JavaMath {
   }
 
   /**
-   * Handle operator (precedence)
-   * Updates expectOp
+   * Handle operator (precedence) Updates expectOp
    */
-  private boolean handleOp(MathOperator op, boolean expectOp) throws InvalidObjectException {
+  private boolean handleOp(final MathOperator op, boolean expectOp) throws InvalidObjectException {
     // no two operators allowed except negation
     if (!expectOp) {
       // convert to unary negation
@@ -159,7 +198,7 @@ public class JavaMath {
     } else {
       try {
         ostack.pop(); // pop (
-      } catch (NoSuchElementException exception) {
+      } catch (final NoSuchElementException exception) {
         throw new InvalidObjectException("mismatched parentheses");
       }
     }

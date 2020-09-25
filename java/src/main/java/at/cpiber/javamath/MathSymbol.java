@@ -1,17 +1,22 @@
 package at.cpiber.javamath;
 
 public class MathSymbol implements MathElement {
-  private final int sym;
+  private final double sym;
 
-  MathSymbol(int sym) {
+  MathSymbol(final double sym) {
     this.sym = sym;
   }
-  MathSymbol(String sym) {
-    this.sym = Integer.parseInt(sym);
+
+  MathSymbol(final String sym) {
+    this.sym = Double.parseDouble(sym);
+  }
+
+  public double get() {
+    return sym;
   }
 
   public String toString() {
-    return Integer.toString(sym);
+    return Double.toString(sym);
   }
 
   public Type getType() {
