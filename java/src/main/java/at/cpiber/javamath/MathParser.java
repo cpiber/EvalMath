@@ -62,7 +62,7 @@ public class MathParser {
 
     // empty string evaluates to 0
     if (len == 0) {
-      output.add(new MathSymbol(0));
+      output.add(new MathSymbol(0.0d));
       return output;
     } else if (start >= len) {
       lastError = "internal error - input too short";
@@ -109,7 +109,7 @@ public class MathParser {
 
     try {
       for (final MathElement e : list) {
-        if (e.getType() == MathElement.Type.OP) {
+        if (e.getClass() == MathOperator.class) {
           stack.push(((MathOperator) e).exec(stack));
         } else {
           stack.push((MathSymbol) e);

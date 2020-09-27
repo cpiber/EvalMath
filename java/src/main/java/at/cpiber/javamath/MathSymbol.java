@@ -18,8 +18,4 @@ public class MathSymbol implements MathElement {
   public String toString() {
     return Double.toString(sym);
   }
-
-  public Type getType() {
-    return Type.SYM;
-  }
 }

@@ -82,7 +82,7 @@ public enum MathOperator implements MathElement {
 
   private MathSymbol pop(final Deque<MathSymbol> stack) throws InvalidObjectException {
     final MathSymbol op = stack.pop();
-    if (op.getType() != Type.SYM)
+    if (op.getClass() != MathSymbol.class)
       throw new InvalidObjectException("internal error - expected symbol (number)");
     return op;
   }
@@ -97,9 +97,5 @@ public enum MathOperator implements MathElement {
 
   public String toString() {
     return this.sym;
-  }
-
-  public Type getType() {
-    return Type.OP;
   }
 }
