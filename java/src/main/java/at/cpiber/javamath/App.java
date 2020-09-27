@@ -25,7 +25,7 @@ public class App {
     while (true) {
       // get equation from stdin
       System.out.print("Enter equation: ");
-      input = in.readLine().trim();
+      input = in.readLine();
       if (input.equals(""))
         break;
 
