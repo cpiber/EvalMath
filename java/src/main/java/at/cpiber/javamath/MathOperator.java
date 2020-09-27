@@ -5,7 +5,7 @@ import java.util.Deque;
 import java.util.HashMap;
 import java.util.Map;
 
-public enum MathOperator implements MathElement {
+public enum MathOperator implements MathFunction {
   NEG("_"), PLUS("+"), MINUS("-"), MULT(1, "*"), DIV(1, "/"), MOD(1, "%"), IDIV(1, "\\"), EXP(2, "^", false),
   LBRACE(3, "("), RBRACE(3, ")");
 
@@ -48,19 +48,24 @@ public enum MathOperator implements MathElement {
     this.lassociative = lassociative;
   }
 
+  /**
+   * Less precedence? Considers left/right association
+   */
   public boolean lt(final MathOperator other) {
     return this.precedence < other.precedence || (this.precedence == other.precedence && this.lassociative);
   }
 
-  public MathSymbol exec(final Deque<MathSymbol> stack) throws InvalidObjectException {
+  /**
+   * Get result
+   */
+  public MathSymbol get(final Deque<MathSymbol> stack) throws InvalidObjectException {
     // unary
-    if (this == NEG) {
-      return new MathSymbol(-1 * pop(stack).get());
-    }
+    if (this == NEG)
+      return new MathSymbol(-1 * MathFunction.pop(stack).get());
 
     // binary
-    final double op2 = pop(stack).get();
-    final double op1 = pop(stack).get();
+    final double op2 = MathFunction.pop(stack).get();
+    final double op1 = MathFunction.pop(stack).get();
     if (this == MINUS) {
       return new MathSymbol(op1 - op2);
     } else if (this == PLUS) {
@@ -80,17 +85,23 @@ public enum MathOperator implements MathElement {
     }
   }
 
-  private MathSymbol pop(final Deque<MathSymbol> stack) throws InvalidObjectException {
-    final MathSymbol op = stack.pop();
-    if (op.getClass() != MathSymbol.class)
-      throw new InvalidObjectException("internal error - expected symbol (number)");
-    return op;
-  }
-
+  /**
+   * Convert char to enum
+   */
   public static MathOperator get(final char chr) {
     return ops.get(chr);
   }
 
+  /**
+   * Stub
+   */
+  public int getArgCount() {
+    return this == NEG ? 1 : 2;
+  }
+
+  /**
+   * Check if char is enum
+   */
   public static boolean is(final char chr) {
     return ops.containsKey(chr);
   }

@@ -9,7 +9,7 @@ import java.util.NoSuchElementException;
 import java.util.function.Predicate;
 
 public class MathParser {
-  private JavaMath math;
+  private final JavaMath math;
 
   private final Deque<MathOperator> ostack = new ArrayDeque<>();
   private int index;
@@ -25,15 +25,19 @@ public class MathParser {
   /**
    * Parse and evaluate string
    */
-  public Double parse(final String input, final int start) {
+  public Double parse(final String input, final int start, final String until) {
     List<MathElement> output;
-    if ((output = pfx(input, start)) == null)
+    if ((output = pfx(input, start, until)) == null)
       return null;
     return exec(output);
   }
 
+  public Double parse(final String input, final int start) {
+    return parse(input, start, "");
+  }
+
   public Double parse(final String input) {
-    return parse(input, 0);
+    return parse(input, 0, "");
   }
 
   /**
@@ -44,12 +48,19 @@ public class MathParser {
   }
 
   /**
+   * Index
+   */
+  public int getIndex() {
+    return index;
+  }
+
+  /**
    * Parse infix string to postfix list
    * 
    * @param input infix string
    * @return postfix list
    */
-  private List<MathElement> pfx(String input, int start) {
+  private List<MathElement> pfx(String input, final int start, final String until) {
     final List<MathElement> output = new ArrayList<>();
     ostack.clear();
     lastError = null;
@@ -75,7 +86,8 @@ public class MathParser {
       // handle character
       // parses numbers, resolves operator precedence
       try {
-        handleChar(input, output, chr, len);
+        if (until.indexOf(chr) != -1 || handleChar(input, output, chr, len, until))
+          break;
       } catch (final InvalidObjectException exception) {
         lastError = exception.getMessage();
         return null;
@@ -109,8 +121,8 @@ public class MathParser {
 
     try {
       for (final MathElement e : list) {
-        if (e.getClass() == MathOperator.class) {
-          stack.push(((MathOperator) e).exec(stack));
+        if (e.getClass() != MathSymbol.class) {
+          stack.push(((MathFunction) e).get(stack));
         } else {
           stack.push((MathSymbol) e);
         }
@@ -133,8 +145,8 @@ public class MathParser {
    * 
    * Updates expectOp
    */
-  private void handleChar(final String input, final List<MathElement> output, final char chr, final int len)
-      throws InvalidObjectException {
+  private boolean handleChar(final String input, final List<MathElement> output, final char chr, final int len,
+      final String until) throws InvalidObjectException {
     // check current symbol
     if (isNumber(chr)) {
       if (expectOp)
@@ -147,17 +159,23 @@ public class MathParser {
       if (expectOp)
         handleOp(MathOperator.MULT, output); // implicit multiplication
 
-      String varname = consume(input, len, this::isVar);
+      final String varname = consume(input, len, this::isVar);
       MathSymbol var;
+      MathFunction func;
 
       if ((var = math.getVar(varname)) != null) {
         output.add(var);
         expectOp = true;
 
-      } else if (allowAssign) {
-        output.add(handleAssign(input, len, varname));
-        index = len;
+      } else if ((func = math.getFunc(varname)) != null) {
+        handleArgs(input, output, len, func);
+        output.add(func);
         expectOp = true;
+
+      } else if (allowAssign) {
+        output.add(handleAssign(input, len, varname, until));
+        expectOp = true;
+        return true;
 
       } else {
         throw new InvalidObjectException(String.format("unknown variable '%s'", varname));
@@ -166,10 +184,14 @@ public class MathParser {
     } else if (MathOperator.is(chr)) {
       handleOp(chr, output);
 
+    } else if (chr == '=') {
+      throw new InvalidObjectException("unexpected assignment");
+
     } else if (chr != ' ') { // ignore whitespace, rest is invalid
       throw new InvalidObjectException(String.format("invalid character '%c'", chr));
     }
     allowAssign = allowAssign && chr == ' '; // false if anything other than ' ' came before
+    return false;
   }
 
   /**
@@ -220,12 +242,45 @@ public class MathParser {
    * 
    * Updates expectOp
    */
-  private MathSymbol handleAssign(final String input, final int len, final String varname)
+  private MathSymbol handleAssign(final String input, final int len, final String varname, final String until)
       throws InvalidObjectException {
     consume(input, len, chr -> chr == ' ', false); // remove whitespace
     if (++index >= len || input.charAt(index) != '=')
       throw new InvalidObjectException(String.format("unknown variable '%s', expected assignment (=)", varname));
-    return math.setVar(varname, new MathSymbol(new MathParser(math).parse(input, index + 1)));
+
+    final MathParser parser = new MathParser(math);
+    final Double d = parser.parse(input, index + 1, until);
+    if (d == null)
+      throw new InvalidObjectException(parser.getError());
+    index = parser.getIndex();
+
+    return math.setVar(varname, new MathSymbol(d));
+  }
+
+  /**
+   * Handle arguments for function call
+   */
+  private void handleArgs(final String input, final List<MathElement> output, final int len, final MathFunction op)
+      throws InvalidObjectException {
+    final int c = op.getArgCount();
+
+    consume(input, len, chr -> chr == ' ', false); // remove whitespace
+    if (++index >= len || input.charAt(index) != '(')
+      throw new InvalidObjectException("expected '(' for function call");
+
+    for (int i = 1; i <= c; i++) {
+      final MathParser parser = new MathParser(math);
+      final List<MathElement> arg = parser.pfx(input, ++index, ",)");
+
+      if (arg == null)
+        throw new InvalidObjectException(parser.getError());
+
+      final char expected = i != c ? ',' : ')';
+      if ((index = parser.getIndex()) >= len || input.charAt(index) != expected)
+        throw new InvalidObjectException(String.format("expected '%s'", expected));
+
+      output.addAll(arg);
+    }
   }
 
   /**
