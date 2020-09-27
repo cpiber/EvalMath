@@ -44,4 +44,10 @@ public class JavaMathTest {
     assertEquals(14.0d, math.eval("  2  *   (  3 + 4 )    "), 0.001);
     assertEquals(-1.0d, math.eval("    -  - -     1 "), 0.001);
   }
+
+  @Test
+  public void testDefVars() {
+    assertEquals(Math.PI, math.eval("pi"), 0.001);
+    assertEquals(Math.E, math.eval("E"), 0.001);
+  }
 }
