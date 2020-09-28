@@ -69,7 +69,8 @@ public class JavaMath {
     for (final String i : inputs) {
       final MathParser parser = new MathParser(this);
       ret = parser.parse(i);
-      if (ret == null && parser.getError() != null) lastError = parser.getError();
+      if (ret == null && parser.getError() != null)
+        lastError = parser.getError();
     }
 
     return ret;
@@ -81,9 +82,10 @@ public class JavaMath {
   public String getError() {
     return lastError;
   }
-  
+
   /**
    * Get variable content
+   * 
    * @param varname
    */
   public MathSymbol getVar(final String varname) {

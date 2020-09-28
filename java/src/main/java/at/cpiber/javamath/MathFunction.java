@@ -5,6 +5,7 @@ import java.util.Deque;
 
 public interface MathFunction extends MathElement {
   MathSymbol get(final Deque<MathSymbol> stack) throws InvalidObjectException;
+
   int getArgCount();
 
   public static MathSymbol pop(final Deque<MathSymbol> stack) throws InvalidObjectException {

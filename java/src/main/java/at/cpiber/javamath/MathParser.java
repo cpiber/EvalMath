@@ -60,7 +60,7 @@ public class MathParser {
    * @param input infix string
    * @return postfix list
    */
-  private List<MathElement> pfx(String input, final int start, final String until) {
+  public List<MathElement> pfx(String input, final int start, final String until) {
     final List<MathElement> output = new ArrayList<>();
     ostack.clear();
     lastError = null;
@@ -116,12 +116,14 @@ public class MathParser {
   /**
    * Evaluate postfix list
    */
-  private Double exec(final List<MathElement> list) {
+  public Double exec(final List<MathElement> list) {
     final Deque<MathSymbol> stack = new ArrayDeque<>();
 
     try {
       for (final MathElement e : list) {
-        if (e.getClass() != MathSymbol.class) {
+        if (e.getClass() == MathVar.class) {
+          stack.push(((MathVar) e).get());
+        } else if (e.getClass() != MathSymbol.class) {
           stack.push(((MathFunction) e).get(stack));
         } else {
           stack.push((MathSymbol) e);
@@ -152,34 +154,21 @@ public class MathParser {
       if (expectOp)
         handleOp(MathOperator.MULT, output); // implicit multiplication
 
-      output.add(new MathSymbol(consume(input, len, this::isNumber)));
+      String num = null;
+      try {
+        num = consume(input, len, this::isNumber);
+        output.add(new MathSymbol(num));
+      } catch (final NumberFormatException exception) {
+        throw new InvalidObjectException(String.format("Invalid number '%s'", num));
+      }
       expectOp = true;
 
     } else if (isAlpha(chr)) {
       if (expectOp)
         handleOp(MathOperator.MULT, output); // implicit multiplication
 
-      final String varname = consume(input, len, this::isVar);
-      MathSymbol var;
-      MathFunction func;
-
-      if ((var = math.getVar(varname)) != null) {
-        output.add(var);
-        expectOp = true;
-
-      } else if ((func = math.getFunc(varname)) != null) {
-        handleArgs(input, output, len, func);
-        output.add(func);
-        expectOp = true;
-
-      } else if (allowAssign) {
-        output.add(handleAssign(input, len, varname, until));
-        expectOp = true;
+      if (handleVar(input, output, len, until))
         return true;
-
-      } else {
-        throw new InvalidObjectException(String.format("unknown variable '%s'", varname));
-      }
 
     } else if (MathOperator.is(chr)) {
       handleOp(chr, output);
@@ -238,23 +227,56 @@ public class MathParser {
   }
 
   /**
+   * Handle call & assignment of variables + functions
+   * 
+   * Updates expectOp
+   * 
+   * @return true if break
+   */
+  private boolean handleVar(final String input, final List<MathElement> output, final int len, final String until)
+      throws InvalidObjectException {
+    final String varname = consume(input, len, this::isVar);
+    MathSymbol var;
+    MathFunction func;
+
+    if ((var = math.getVar(varname)) != null) {
+      output.add(var);
+      expectOp = true;
+
+    } else if ((func = math.getFunc(varname)) != null) {
+      handleArgs(input, output, len, func);
+      output.add(func);
+      expectOp = true;
+
+    } else if (allowAssign) {
+      output.add(handleAssign(input, len, varname, until));
+      expectOp = true;
+      return true;
+
+    } else {
+      throw new InvalidObjectException(String.format("unknown variable/function '%s'", varname));
+    }
+    return false;
+  }
+
+  /**
    * Handle variable assignment
    * 
    * Updates expectOp
    */
-  private MathSymbol handleAssign(final String input, final int len, final String varname, final String until)
+  private MathVar handleAssign(final String input, final int len, final String varname, final String until)
       throws InvalidObjectException {
     consume(input, len, chr -> chr == ' ', false); // remove whitespace
     if (++index >= len || input.charAt(index) != '=')
       throw new InvalidObjectException(String.format("unknown variable '%s', expected assignment (=)", varname));
 
     final MathParser parser = new MathParser(math);
-    final Double d = parser.parse(input, index + 1, until);
-    if (d == null)
+    final List<MathElement> output = parser.pfx(input, index + 1, until);
+    if (output == null)
       throw new InvalidObjectException(parser.getError());
     index = parser.getIndex();
 
-    return math.setVar(varname, new MathSymbol(d));
+    return new MathVar(parser, varname, output);
   }
 
   /**
@@ -319,5 +341,12 @@ public class MathParser {
 
   private String consume(final String input, final int len, final Predicate<Character> check) {
     return consume(input, len, check, true);
+  }
+
+  /**
+   * Delegate setting variables
+   */
+  public MathSymbol setVar(final String varname, final MathSymbol var) {
+    return math.setVar(varname, var);
   }
 }
