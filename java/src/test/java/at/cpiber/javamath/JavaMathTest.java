@@ -67,9 +67,31 @@ public class JavaMathTest {
   public void testUserVars() {
     assertEquals(Math.E * 2, math.eval("two_e=2E"), 0.001);
     assertEquals(Math.PI * 2, math.eval("two_pi  =   2 * PI  "), 0.001);
-    assertEquals(Math.PI * 2, math.eval("two_pi"), 0.001); // test permanence
+    assertEquals(Math.PI * 2, math.eval("two_pi"), 0.001); // test persistence
     assertEquals(4.0d, math.eval("two=2; two 2"), 0.001);
     assertEquals(null, math.eval("two2"));
     assertEquals(0.0d, math.eval("two.2=0"), 0.001);
+    assertEquals(2.0d, math.eval("a  =  b   = 2"), 0.001);
+    assertNotEquals(null, math.getVar("a"));
+    assertNotEquals(null, math.getVar("b"));
+    assertEquals(null, math.eval("a = 2"));
+  }
+
+  @Test
+  public void testDefFunc() {
+    assertEquals(Math.sin(2), math.eval("sin2 = sin( t =  2 )"), 0.001);
+    assertEquals(2.0d, math.eval("t"), 0.001);
+    assertEquals(Math.sin(2), math.eval("sin2"), 0.001);
+    assertEquals(Math.log(1000) / Math.log(10), math.eval("log(1000, 10)"), 0.001);
+  }
+
+  @Test
+  public void testSyntax() {
+    assertEquals(null, math.eval("+2")); // unary +
+    assertEquals(null, math.eval("   ( 2 + 3  ")); // )
+    assertEquals(null, math.eval("  e ( 1 , 2 )")); // ,
+    assertEquals(null, math.eval(" sin(pi, pi) ")); // 1 arg (got 2)
+    assertEquals(null, math.eval(" log ( 2 )")); // 2 args (got 1)
+    assertEquals(null, math.eval("$"));
   }
 }

@@ -15,11 +15,17 @@ public class MathParser {
   private int index;
   private boolean expectOp;
   private boolean allowAssign;
+  private MathStackFunction f = null;
 
   private String lastError = null;
 
   MathParser(final JavaMath math) {
     this.math = math;
+  }
+
+  MathParser(final JavaMath math, final MathStackFunction f) {
+    this.math = math;
+    this.f = f;
   }
 
   /**
@@ -68,7 +74,7 @@ public class MathParser {
     input = input.trim();
     final int len = input.length();
     expectOp = false;
-    allowAssign = true;
+    allowAssign = f == null;
     char chr;
 
     // empty string evaluates to 0
@@ -76,7 +82,7 @@ public class MathParser {
       output.add(new MathSymbol(0.0d));
       return output;
     } else if (start >= len) {
-      lastError = "internal error - input too short";
+      lastError = "input ended";
       return null;
     }
 
@@ -92,6 +98,11 @@ public class MathParser {
         lastError = exception.getMessage();
         return null;
       }
+    }
+
+    if (output.isEmpty()) {
+      lastError = "empty expression";
+      return null;
     }
 
     // check valid operation
@@ -121,9 +132,11 @@ public class MathParser {
 
     try {
       for (final MathElement e : list) {
-        if (e.getClass() == MathVar.class) {
+        if (e == null) {
+          stack.push(new MathSymbol(1)); // function assignment
+        } else if (e instanceof MathVar) {
           stack.push(((MathVar) e).get());
-        } else if (e.getClass() != MathSymbol.class) {
+        } else if (!(e instanceof MathSymbol)) {
           stack.push(((MathFunction) e).get(stack));
         } else {
           stack.push((MathSymbol) e);
@@ -239,7 +252,7 @@ public class MathParser {
     MathSymbol var;
     MathFunction func;
 
-    if ((var = math.getVar(varname)) != null) {
+    if ((var = getVar(varname)) != null) {
       output.add(var);
       expectOp = true;
 
@@ -260,23 +273,85 @@ public class MathParser {
   }
 
   /**
-   * Handle variable assignment
-   * 
-   * Updates expectOp
+   * Handle variable/function assignment
    */
-  private MathVar handleAssign(final String input, final int len, final String varname, final String until)
+  private MathElement handleAssign(final String input, final int len, final String varname, final String until)
       throws InvalidObjectException {
+    final boolean allowFn = index == 0;
     consume(input, len, chr -> chr == ' ', false); // remove whitespace
-    if (++index >= len || input.charAt(index) != '=')
+
+    char ichr;
+    if (++index >= len || ((ichr = input.charAt(index)) != '=' && ichr != '('))
       throw new InvalidObjectException(String.format("unknown variable '%s', expected assignment (=)", varname));
 
-    final MathParser parser = new MathParser(math);
+    if (ichr == '=') {
+      // variable
+      final MathParser parser = new MathParser(math, f);
+      final List<MathElement> output = parser.pfx(input, index + 1, until);
+      if (output == null)
+        throw new InvalidObjectException(parser.getError());
+      index = parser.getIndex();
+
+      return new MathVar(parser, varname, output);
+    } else if (allowFn) {
+      handleFnAssign(input, len, until, varname);
+      return null;
+    } else {
+      throw new InvalidObjectException(String.format("unknown function '%s'", varname));
+    }
+  }
+
+  /**
+   * Handle function declaration
+   */
+  private void handleFnAssign(final String input, final int len, final String until, final String varname)
+      throws InvalidObjectException {
+    // function
+    final List<String> vars = new ArrayList<>();
+    char ichr;
+
+    consume(input, len, chr -> chr == ' ', false); // remove whitespace
+
+    if (++index >= len)
+      throw new InvalidObjectException("unexpected end of string");
+
+    if (input.charAt(index) != ')') {
+      consumeFnArg(input, len, vars);
+
+      while (true) {
+        consume(input, len, chr -> chr == ' ', false); // remove whitespace
+
+        if (++index >= len)
+          throw new InvalidObjectException("unexpected end of string");
+        ichr = input.charAt(index);
+
+        if (ichr == ')') {
+          break;
+        } else if (ichr != ',') {
+          throw new InvalidObjectException("expected argument list delimiter");
+        }
+
+        consume(input, len, chr -> chr == ' ', false); // remove whitespace
+        index++;
+        consumeFnArg(input, len, vars);
+      }
+    }
+
+    consume(input, len, chr -> chr == ' ', false); // remove whitespace
+    if (++index >= len || input.charAt(index) != '=')
+      throw new InvalidObjectException(String.format("unknown function '%s', expected assignment (=)", varname));
+
+    this.f = new MathStackFunction(this, vars, varname);
+
+    final MathParser parser = new MathParser(math, f);
     final List<MathElement> output = parser.pfx(input, index + 1, until);
     if (output == null)
       throw new InvalidObjectException(parser.getError());
-    index = parser.getIndex();
 
-    return new MathVar(parser, varname, output);
+    index = parser.getIndex();
+    this.f.setPfx(output);
+
+    math.setFunc(varname, this.f);
   }
 
   /**
@@ -289,16 +364,24 @@ public class MathParser {
     consume(input, len, chr -> chr == ' ', false); // remove whitespace
     if (++index >= len || input.charAt(index) != '(')
       throw new InvalidObjectException("expected '(' for function call");
+    
+    if (c == 0) {
+      consume(input, len, chr -> chr == ' ', false); // remove whitespace
+      if (++index >= len || input.charAt(index) != ')')
+        throw new InvalidObjectException("expected ')'");
+      return;
+    }
 
     for (int i = 1; i <= c; i++) {
-      final MathParser parser = new MathParser(math);
+      final MathParser parser = new MathParser(math, f);
       final List<MathElement> arg = parser.pfx(input, ++index, ",)");
 
       if (arg == null)
         throw new InvalidObjectException(parser.getError());
 
       final char expected = i != c ? ',' : ')';
-      if ((index = parser.getIndex()) >= len || input.charAt(index) != expected)
+      index = parser.getIndex();
+      if (index >= len || input.charAt(index) != expected)
         throw new InvalidObjectException(String.format("expected '%s'", expected));
 
       output.addAll(arg);
@@ -341,6 +424,26 @@ public class MathParser {
 
   private String consume(final String input, final int len, final Predicate<Character> check) {
     return consume(input, len, check, true);
+  }
+
+  /**
+   * Short to consume arguments in function declaration
+   */
+  private void consumeFnArg(final String input, final int len, final List<String> vars) throws InvalidObjectException {
+    if (index < len && isAlpha(input.charAt(index))) {
+      vars.add(consume(input, len, this::isVar));
+    } else {
+      throw new InvalidObjectException("expected variable name for function declaration");
+    }
+  }
+
+  /**
+   * Delegate getting variables, handles local (function) variables (arguments)
+   */
+  public MathSymbol getVar(final String varname) {
+    if (this.f != null && this.f.hasVar(varname))
+      return this.f.getVar(varname);
+    return math.getVar(varname);
   }
 
   /**

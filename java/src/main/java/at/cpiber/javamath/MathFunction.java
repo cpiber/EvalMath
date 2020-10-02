@@ -10,7 +10,7 @@ public interface MathFunction extends MathElement {
 
   public static MathSymbol pop(final Deque<MathSymbol> stack) throws InvalidObjectException {
     final MathSymbol op = stack.pop();
-    if (op.getClass() != MathSymbol.class)
+    if (!(op instanceof MathSymbol))
       throw new InvalidObjectException("internal error - expected symbol (number)");
     return op;
   }
