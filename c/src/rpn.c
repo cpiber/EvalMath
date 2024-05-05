@@ -1,5 +1,6 @@
 #include "rpn.h"
 #include "lexer.h"
+#include <math.h>
 #include <stdint.h>
 #define STB_DS_IMPLEMENTATION
 #include "stb_ds.h"
@@ -23,6 +24,8 @@ static int math_parser_precedence(Token operator, bool unary)
     case OP_MUL:
     case OP_DIV:
       return 3;
+    case OP_EXP:
+      return 1;
   }
   assert(0 && "unreachable");
 }
@@ -42,7 +45,7 @@ static MathParserError math_parser_handle_binary(MathOperator left, MathOperator
   MATH_PARSER_TRY(math_parser_check_operand(left));
   MATH_PARSER_TRY(math_parser_check_operand(right));
   assert(op.token.kind == TK_OP);
-  if (left.token.kind == TK_INTEGER && right.token.kind == TK_INTEGER && op.token.as.op != OP_DIV)
+  if (left.token.kind == TK_INTEGER && right.token.kind == TK_INTEGER && op.token.as.op != OP_DIV && op.token.as.op != OP_EXP)
   {
     int16_t result;
     switch (op.token.as.op) {
@@ -56,6 +59,7 @@ static MathParserError math_parser_handle_binary(MathOperator left, MathOperator
         result = left.token.as.integer.value * right.token.as.integer.value;
         break;
       case OP_DIV:
+      case OP_EXP:
         assert(0 && "unreachable");
     }
     *res = (MathOperator) {
@@ -86,6 +90,9 @@ static MathParserError math_parser_handle_binary(MathOperator left, MathOperator
       break;
     case OP_DIV:
       result = left_value / right_value;
+      break;
+    case OP_EXP:
+      result = pow(left_value, right_value);
       break;
   }
   *res = (MathOperator) {
@@ -199,6 +206,7 @@ MathParserError math_parser_rpn(MathParser *parser)
         MathOperator op = (MathOperator) {
           .token = token,
           .precedence = math_parser_precedence(token, unary),
+          .right_associative = token.as.op == OP_EXP,
           .nargs = unary ? 1 : 2,
         };
 
@@ -207,8 +215,8 @@ MathParserError math_parser_rpn(MathParser *parser)
         {
           top_op = math_parser_last_op(parser);
           if (top_op.token.kind != TK_OP) break; // not an operator -> parenthesis, stop
+          if (op.precedence == top_op.precedence && op.right_associative) break; // same precedence must be left associative
           if (op.precedence < top_op.precedence) break; // must have greater precedence
-          // TODO: handle associativity
           arrput(parser->output_queue, arrpop(parser->operator_stack));
         }
         arrput(parser->operator_stack, op);

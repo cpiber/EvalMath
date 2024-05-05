@@ -209,6 +209,7 @@ LexerError lexer_next_token(Lexer *lexer, Token *token)
   MAP('+', OP_ADD)
   MAP('*', OP_MUL)
   MAP('/', OP_DIV)
+  MAP('^', OP_EXP)
 #undef MAP
 #define MAP(_c, _kind)                                 \
   else if (c == _c)                                    \

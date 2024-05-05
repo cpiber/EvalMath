@@ -5,6 +5,7 @@
 typedef struct {
   Token token;
   int precedence;
+  bool right_associative;
   size_t nargs;
 } MathOperator;
 

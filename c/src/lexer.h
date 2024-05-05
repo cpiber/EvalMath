@@ -37,6 +37,7 @@ typedef struct {
       OP_SUB,
       OP_MUL,
       OP_DIV,
+      OP_EXP,
     } op;
   } as;
 } Token;
