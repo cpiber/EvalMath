@@ -29,5 +29,6 @@ int main(int argc, char *argv[])
         fprintf(stderr, "Evaluation stopped abnormally with error %d\n", err);
       else printf("Result: %lf\n", result);
     }
+    math_parser_free(&parser);
   }
 }

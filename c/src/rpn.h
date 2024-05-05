@@ -24,11 +24,16 @@ typedef enum {
   MERR_INPUT_EMPTY,
 } MathParserError;
 
-#define MATH_PARSER_TRY(expr) do { \
-  MathParserError err = (expr);    \
-  if (err != MERR_OK) return err;  \
+#define RETURN(v) do { \
+  err = (v);           \
+  goto return_defer;   \
+} while (0)
+#define MATH_PARSER_TRY(expr) do {   \
+  MathParserError _err = (expr);     \
+  if (_err != MERR_OK) RETURN(_err); \
 } while(0)
 
 MathParser math_parser_init(Lexer lexer);
 MathParserError math_parser_rpn(MathParser *parser);
 MathParserError math_parser_eval(MathParser *parser, double *result);
+void math_parser_free(MathParser *parser);

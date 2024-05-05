@@ -42,6 +42,7 @@ static MathParserError math_parser_check_operand(MathOperator operand)
 
 static MathParserError math_parser_handle_binary(MathOperator left, MathOperator right, MathOperator op, MathOperator *res)
 {
+  MathParserError err = MERR_OK;
   MATH_PARSER_TRY(math_parser_check_operand(left));
   MATH_PARSER_TRY(math_parser_check_operand(right));
   assert(op.token.kind == TK_OP);
@@ -106,16 +107,18 @@ static MathParserError math_parser_handle_binary(MathOperator left, MathOperator
       }
     }
   };
-  return MERR_OK;
+return_defer:
+  return err;
 }
 
 static MathParserError math_parser_handle_unary(MathOperator operand, MathOperator op, MathOperator *res)
 {
+  MathParserError err = MERR_OK;
   MATH_PARSER_TRY(math_parser_check_operand(operand));
   if (op.token.as.op == OP_ADD)
   {
     *res = operand;
-    return MERR_OK;
+    RETURN(MERR_OK);
   }
   assert(op.token.as.op == OP_SUB && "only + and - should be allowed as unary");
   if (operand.token.kind == TK_INTEGER)
@@ -131,7 +134,7 @@ static MathParserError math_parser_handle_unary(MathOperator operand, MathOperat
         }
       }
     };
-    return MERR_OK;
+    RETURN(MERR_OK);
   }
   *res = (MathOperator) {
     .token = {
@@ -144,7 +147,8 @@ static MathParserError math_parser_handle_unary(MathOperator operand, MathOperat
       }
     }
   };
-  return MERR_OK;
+return_defer:
+  return err;
 }
 
 // Implementation
@@ -270,6 +274,7 @@ MathParserError math_parser_eval(MathParser *parser, double *result)
   assert(parser != NULL);
   MathOperator op, opresult;
   MathOperator *stack = NULL;
+  MathParserError err = MERR_OK;
   size_t size = arrlenu(parser->output_queue);
   for (size_t i = 0; i < size; ++i)
   {
@@ -282,7 +287,12 @@ MathParserError math_parser_eval(MathParser *parser, double *result)
     else if (op.token.kind != TK_OP)
     {
       lexer_dump_err(op.token.loc, stderr, "Expected operator, got " SV_Fmt, SV_Arg(op.token.content));
-      return MERR_OPERATOR_ERROR;
+      RETURN(MERR_OPERATOR_ERROR);
+    }
+    if (arrlenu(stack) < op.nargs)
+    {
+      lexer_dump_err(op.token.loc, stderr, "Not enough operands for operator " SV_Fmt, SV_Arg(op.token.content));
+      RETURN(MERR_OPERATOR_ERROR);
     }
     if (op.nargs == 1)
     {
@@ -304,15 +314,24 @@ MathParserError math_parser_eval(MathParser *parser, double *result)
   if (size == 0)
   {
     lexer_dump_err(parser->lexer.loc, stderr, "Input empty");
-    return MERR_INPUT_EMPTY;
+    RETURN(MERR_INPUT_EMPTY);
   }
   if (size > 1)
   {
     lexer_dump_err(parser->lexer.loc, stderr, "Unconsumed input on stack");
-    return MERR_OPERATOR_ERROR;
+    RETURN(MERR_OPERATOR_ERROR);
   }
   opresult = arrpop(stack);
   MATH_PARSER_TRY(math_parser_check_operand(opresult));
   *result = opresult.token.kind == TK_REAL ? opresult.token.as.real.value : (double) opresult.token.as.integer.value;
-  return MERR_OK;
+return_defer:
+  arrfree(stack);
+  return err;
+}
+
+void math_parser_free(MathParser *parser)
+{
+  assert(parser != NULL);
+  arrfree(parser->output_queue);
+  arrfree(parser->operator_stack);
 }
