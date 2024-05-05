@@ -24,7 +24,7 @@ dependencies {
 
 application {
     // Define the main class for the application.
-    mainClassName = 'at.cpiber.javamath.App'
+    mainClass.set('at.cpiber.javamath.App')
 }
 
 run {
