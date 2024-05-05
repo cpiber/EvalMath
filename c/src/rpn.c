@@ -249,6 +249,8 @@ MathParserError math_parser_rpn(MathParser *parser)
     }
     lasttoken = token;
   }
+  if (err != LERR_EOF)
+    return MERR_LEXER_ERROR;
   MathOperator top_op;
   while (arrlenu(parser->operator_stack) > 0)
   {
