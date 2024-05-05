@@ -20,6 +20,7 @@ static double eval(char *expr)
   assert(err == MERR_OK);
   err = math_parser_eval(&parser, &result);
   assert(err == MERR_OK);
+  math_parser_free(&parser);
   return result;
 }
 
