@@ -30,6 +30,104 @@ static int math_parser_precedence(Token operator, bool unary)
   assert(0 && "unreachable");
 }
 
+static MathParserError math_parser_parse_one_token(MathParser *parser, const Token token, const Token lasttoken)
+{
+  switch (token.kind) {
+    case TK_INTEGER:
+    case TK_REAL:
+      // two consequtive numbers -> implicit multiplication
+      if (lasttoken.kind == TK_REAL || lasttoken.kind == TK_INTEGER || lasttoken.kind == TK_CLOSE_PAREN)
+      {
+        Token newtoken = (Token) {
+          .kind = TK_OP,
+          .content = {
+            .data = "*",
+            .count = 1,
+          },
+          .loc = token.loc,
+          .as = {
+            .op = OP_MUL,
+          }
+        };
+        math_parser_parse_one_token(parser, newtoken, token);
+      }
+      arrput(parser->output_queue, (MathOperator) {.token=token});
+      break;
+    case TK_OP: {
+      bool unary = false;
+      if ((token.as.op == OP_ADD || token.as.op == OP_SUB) && (lasttoken.kind == TK_OPEN_PAREN || lasttoken.kind == TK_OP))
+      {
+        unary = true;
+      }
+      else if (lasttoken.kind == TK_OP)
+      {
+        lexer_dump_err(token.loc, stderr, "Unexpected operator " SV_Fmt, SV_Arg(token.content));
+        fprintf(stderr, LOC_FMT ": NOTE: Preceded by this operator " SV_Fmt "\n", LOC_ARG(lasttoken.loc), SV_Arg(lasttoken.content));
+        return MERR_UNEXPECTED_OPERATOR;
+      }
+      MathOperator op = (MathOperator) {
+        .token = token,
+        .precedence = math_parser_precedence(token, unary),
+        .right_associative = token.as.op == OP_EXP || unary,
+        .nargs = unary ? 1 : 2,
+      };
+
+      MathOperator top_op;
+      while (arrlenu(parser->operator_stack) > 0)
+      {
+        top_op = math_parser_last_op(parser);
+        if (top_op.token.kind != TK_OP) break; // not an operator -> parenthesis, stop
+        if (op.precedence == top_op.precedence && op.right_associative) break; // same precedence must be left associative
+        if (op.precedence < top_op.precedence) break; // must have greater precedence
+        arrput(parser->output_queue, arrpop(parser->operator_stack));
+      }
+      arrput(parser->operator_stack, op);
+    } break;
+    case TK_OPEN_PAREN: {
+      // number followed by ( -> implicit multiplication
+      if (lasttoken.kind == TK_REAL || lasttoken.kind == TK_INTEGER || lasttoken.kind == TK_CLOSE_PAREN)
+      {
+        Token newtoken = (Token) {
+          .kind = TK_OP,
+          .content = {
+            .data = "*",
+            .count = 1,
+          },
+          .loc = token.loc,
+          .as = {
+            .op = OP_MUL,
+          }
+        };
+        math_parser_parse_one_token(parser, newtoken, token);
+      }
+      MathOperator op = (MathOperator) {
+        .token = token,
+        .precedence = 100,
+      };
+      arrput(parser->operator_stack, op);
+    } break;
+    case TK_CLOSE_PAREN: {
+      MathOperator top_op;
+      size_t len;
+      while ((len = arrlenu(parser->operator_stack)) > 0)
+      {
+        top_op = math_parser_last_op(parser);
+        if (top_op.token.kind != TK_OP) break; // drain until (
+        arrput(parser->output_queue, arrpop(parser->operator_stack));
+      }
+      if (len == 0)
+      {
+        lexer_dump_err(token.loc, stderr, "Unbalanced parenthesis, got ) without prior (");
+        return MERR_UNBALANCED_PARENTHESIS;
+      }
+      assert(parser->operator_stack[len - 1].token.kind == TK_OPEN_PAREN);
+      (void) arrpop(parser->operator_stack);
+      // TODO: handle function
+    } break;
+  }
+  return MERR_OK;
+}
+
 static MathParserError math_parser_check_operand(MathOperator operand)
 {
   if (operand.token.kind != TK_INTEGER && operand.token.kind != TK_REAL)
@@ -172,85 +270,7 @@ MathParserError math_parser_rpn(MathParser *parser)
   };
   while ((err = lexer_next_token(&parser->lexer, &token)) == LERR_OK)
   {
-    switch (token.kind) {
-      case TK_INTEGER:
-      case TK_REAL:
-        arrput(parser->output_queue, (MathOperator) {.token=token});
-        // two consequtive numbers -> implicit multiplication
-        if (lasttoken.kind == TK_REAL || lasttoken.kind == TK_INTEGER)
-        {
-          lasttoken = token;
-          token = (Token) {
-            .kind = TK_OP,
-            .content = {
-              .data = "*",
-              .count = 1,
-            },
-            .loc = token.loc,
-            .as = {
-              .op = OP_MUL,
-            }
-          };
-          goto handle_op;
-        }
-        break;
-      case TK_OP: {
-      handle_op:
-        bool unary = false;
-        if ((token.as.op == OP_ADD || token.as.op == OP_SUB) && (lasttoken.kind == TK_OPEN_PAREN || lasttoken.kind == TK_OP))
-        {
-          unary = true;
-        }
-        else if (lasttoken.kind == TK_OP)
-        {
-          lexer_dump_err(token.loc, stderr, "Unexpected operator " SV_Fmt, SV_Arg(token.content));
-          fprintf(stderr, LOC_FMT ": NOTE: Preceded by this operator " SV_Fmt "\n", LOC_ARG(lasttoken.loc), SV_Arg(lasttoken.content));
-          return MERR_UNEXPECTED_OPERATOR;
-        }
-        MathOperator op = (MathOperator) {
-          .token = token,
-          .precedence = math_parser_precedence(token, unary),
-          .right_associative = token.as.op == OP_EXP || unary,
-          .nargs = unary ? 1 : 2,
-        };
-
-        MathOperator top_op;
-        while (arrlenu(parser->operator_stack) > 0)
-        {
-          top_op = math_parser_last_op(parser);
-          if (top_op.token.kind != TK_OP) break; // not an operator -> parenthesis, stop
-          if (op.precedence == top_op.precedence && op.right_associative) break; // same precedence must be left associative
-          if (op.precedence < top_op.precedence) break; // must have greater precedence
-          arrput(parser->output_queue, arrpop(parser->operator_stack));
-        }
-        arrput(parser->operator_stack, op);
-      } break;
-      case TK_OPEN_PAREN: {
-        MathOperator op = (MathOperator) {
-          .token = token,
-          .precedence = 100,
-        };
-        arrput(parser->operator_stack, op);
-      } break;
-      case TK_CLOSE_PAREN: {
-        MathOperator top_op;
-        size_t len;
-        while ((len = arrlenu(parser->operator_stack)) > 0)
-        {
-          top_op = math_parser_last_op(parser);
-          if (top_op.token.kind != TK_OP) break; // drain until (
-          arrput(parser->output_queue, arrpop(parser->operator_stack));
-        }
-        if (len == 0)
-        {
-          lexer_dump_err(token.loc, stderr, "Unbalanced parenthesis, got ) without prior (");
-          return MERR_UNBALANCED_PARENTHESIS;
-        }
-        assert(parser->operator_stack[len - 1].token.kind == TK_OPEN_PAREN);
-        (void) arrpop(parser->operator_stack);
-        // TODO: handle function
-      } break;
-    }
+    math_parser_parse_one_token(parser, token, lasttoken);
     lasttoken = token;
   }
   if (err != LERR_EOF)
