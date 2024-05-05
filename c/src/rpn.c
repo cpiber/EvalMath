@@ -270,7 +270,8 @@ MathParserError math_parser_rpn(MathParser *parser)
   };
   while ((err = lexer_next_token(&parser->lexer, &token)) == LERR_OK)
   {
-    math_parser_parse_one_token(parser, token, lasttoken);
+    MathParserError err = math_parser_parse_one_token(parser, token, lasttoken);
+    if (err != MERR_OK) return err;
     lasttoken = token;
   }
   if (err != LERR_EOF)
