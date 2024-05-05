@@ -210,6 +210,21 @@ LexerError lexer_next_token(Lexer *lexer, Token *token)
   MAP('*', OP_MUL)
   MAP('/', OP_DIV)
 #undef MAP
+#define MAP(_c, _kind)                                 \
+  else if (c == _c)                                    \
+  {                                                    \
+    String_View op = sv_chop_left(&lexer->content, 1); \
+    *token = (Token) {                                 \
+      .loc = lexer->loc,                               \
+      .content = op,                                   \
+      .kind = _kind,                                   \
+    };                                                 \
+    lexer->loc.col += 1;                               \
+    return LERR_OK;                                    \
+  }
+  MAP('(', TK_OPEN_PAREN)
+  MAP(')', TK_CLOSE_PAREN)
+#undef MAP
 
   String_View preview = lexer->content;
   preview = sv_chop_left_while(&preview, not_isspace);
@@ -233,6 +248,8 @@ const char *lexer_strtokenkind(TokenKind kind)
     case TK_INTEGER: return "INTEGER";
     case TK_REAL: return "REAL";
     case TK_OP: return "OP";
+    case TK_OPEN_PAREN: return "OPEN_PAREN";
+    case TK_CLOSE_PAREN: return "CLOSE_PAREN";
   }
   assert(0 && "unreachable");
 }
@@ -248,6 +265,8 @@ void lexer_dump_token(Token token)
       printf(" (%lf)\n", token.as.real.value);
       break;
     case TK_OP:
+    case TK_OPEN_PAREN:
+    case TK_CLOSE_PAREN:
       printf("\n");
       break;
   }

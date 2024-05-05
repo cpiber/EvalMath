@@ -17,6 +17,8 @@ typedef enum {
   TK_INTEGER,
   TK_REAL,
   TK_OP,
+  TK_OPEN_PAREN,
+  TK_CLOSE_PAREN,
 } TokenKind;
 
 typedef struct {
