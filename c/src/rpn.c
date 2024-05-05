@@ -165,8 +165,26 @@ MathParserError math_parser_rpn(MathParser *parser)
       case TK_INTEGER:
       case TK_REAL:
         arrput(parser->output_queue, (MathOperator) {.token=token});
+        // two consequtive numbers -> implicit multiplication
+        if (lasttoken.kind == TK_REAL || lasttoken.kind == TK_INTEGER)
+        {
+          lasttoken = token;
+          token = (Token) {
+            .kind = TK_OP,
+            .content = {
+              .data = "*",
+              .count = 1,
+            },
+            .loc = token.loc,
+            .as = {
+              .op = OP_MUL,
+            }
+          };
+          goto handle_op;
+        }
         break;
       case TK_OP: {
+      handle_op:
         bool unary = false;
         if ((token.as.op == OP_ADD || token.as.op == OP_SUB) && (lasttoken.kind == TK_OPEN_PAREN || lasttoken.kind == TK_OP))
         {
