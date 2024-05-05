@@ -12,7 +12,7 @@ int main(int argc, char *argv[])
     MathParserError err = math_parser_rpn(&parser);
     if (err != MERR_OK)
     {
-      fprintf(stderr, "Lexer stopped abnormally with error %d\n", err);
+      fprintf(stderr, "Parser stopped abnormally with error %d\n", err);
     }
     else
     {
@@ -23,6 +23,11 @@ int main(int argc, char *argv[])
         printf(" " SV_Fmt, SV_Arg(parser.output_queue[i].token.content));
       }
       printf("\n");
+      double result;
+      err = math_parser_eval(&parser, &result);
+      if (err != MERR_OK)
+        fprintf(stderr, "Evaluation stopped abnormally with error %d\n", err);
+      else printf("Result: %lf\n", result);
     }
   }
 }
