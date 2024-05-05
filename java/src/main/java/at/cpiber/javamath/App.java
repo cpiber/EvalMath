@@ -26,7 +26,7 @@ public class App {
       // get equation from stdin
       System.out.print("Enter equation: ");
       input = in.readLine();
-      if (input.equals(""))
+      if (input == null || input.equals(""))
         break;
 
       out(input, true);
@@ -44,7 +44,7 @@ public class App {
       System.out.print("Error: ");
       System.out.println(math.getError());
     }
-    if (print) 
+    if (print)
       System.out.print("Result: ");
     System.out.println(res);
   }
