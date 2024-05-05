@@ -210,7 +210,7 @@ MathParserError math_parser_rpn(MathParser *parser)
         MathOperator op = (MathOperator) {
           .token = token,
           .precedence = math_parser_precedence(token, unary),
-          .right_associative = token.as.op == OP_EXP,
+          .right_associative = token.as.op == OP_EXP || unary,
           .nargs = unary ? 1 : 2,
         };
 
