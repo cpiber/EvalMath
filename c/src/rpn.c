@@ -257,7 +257,7 @@ MathParserError math_parser_rpn(MathParser *parser)
     top_op = math_parser_last_op(parser);
     if (top_op.token.kind != TK_OP)
     {
-      lexer_dump_err(token.loc, stderr, "Unbalanced parenthesis, this ( was not closed");
+      lexer_dump_err(top_op.token.loc, stderr, "Unbalanced parenthesis, this ( was not closed");
       return MERR_UNBALANCED_PARENTHESIS;
     }
     arrput(parser->output_queue, arrpop(parser->operator_stack));
