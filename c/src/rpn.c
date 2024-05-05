@@ -49,7 +49,7 @@ static MathParserError math_parser_parse_one_token(MathParser *parser, const Tok
             .op = OP_MUL,
           }
         };
-        math_parser_parse_one_token(parser, newtoken, token);
+        math_parser_parse_one_token(parser, newtoken, lasttoken);
       }
       arrput(parser->output_queue, (MathOperator) {.token=token});
       break;
@@ -98,7 +98,7 @@ static MathParserError math_parser_parse_one_token(MathParser *parser, const Tok
             .op = OP_MUL,
           }
         };
-        math_parser_parse_one_token(parser, newtoken, token);
+        math_parser_parse_one_token(parser, newtoken, lasttoken);
       }
       MathOperator op = (MathOperator) {
         .token = token,
