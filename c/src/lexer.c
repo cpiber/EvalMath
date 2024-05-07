@@ -30,6 +30,11 @@ static bool not_isspace(char c)
   return !isspace(c);
 }
 
+static bool isident(char c)
+{
+  return isalnum(c) || c == '_';
+}
+
 static LexerError sv_parse_double(Location loc, String_View sv, double *result)
 {
   char *end;
@@ -226,6 +231,18 @@ LexerError lexer_next_token(Lexer *lexer, Token *token)
   MAP('(', TK_OPEN_PAREN)
   MAP(')', TK_CLOSE_PAREN)
 #undef MAP
+  else if (isalpha(c))
+  {
+    String_View symb = sv_chop_left_while(&lexer->content, isident);
+    assert(symb.count > 0 && "how did we get here");
+    *token = (Token) {
+      .loc = lexer->loc,
+      .content = symb,
+      .kind = TK_SYMBOL,
+    };
+    lexer->loc.col += symb.count;
+    return LERR_OK;
+  }
 
   String_View preview = lexer->content;
   preview = sv_chop_left_while(&preview, not_isspace);
@@ -251,6 +268,7 @@ const char *lexer_strtokenkind(TokenKind kind)
     case TK_OP: return "OP";
     case TK_OPEN_PAREN: return "OPEN_PAREN";
     case TK_CLOSE_PAREN: return "CLOSE_PAREN";
+    case TK_SYMBOL: return "SYMBOL";
   }
   assert(0 && "unreachable");
 }
@@ -268,6 +286,7 @@ void lexer_dump_token(Token token)
     case TK_OP:
     case TK_OPEN_PAREN:
     case TK_CLOSE_PAREN:
+    case TK_SYMBOL:
       printf("\n");
       break;
   }

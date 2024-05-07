@@ -19,6 +19,7 @@ typedef enum {
   TK_OP,
   TK_OPEN_PAREN,
   TK_CLOSE_PAREN,
+  TK_SYMBOL,
 } TokenKind;
 
 typedef struct {
