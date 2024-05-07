@@ -1,20 +1,21 @@
 #include "rpn.h"
 #include "lexer.h"
 #include <math.h>
+#include <math.h>
 #include <stdint.h>
 #define STB_DS_IMPLEMENTATION
 #include "stb_ds.h"
 
 // Private functions
 
-static MathOperator math_parser_last_op(MathParser *parser)
+static MathOperator math_parser_last_op(const MathParser *const parser)
 {
   size_t len = arrlenu(parser->operator_stack);
   assert(len > 0);
   return parser->operator_stack[len - 1];
 }
 
-static int math_parser_precedence(Token operator, bool unary)
+static int math_parser_precedence(const Token operator, bool unary)
 {
   assert(operator.kind == TK_OP);
   switch (operator.as.op) {
@@ -30,29 +31,56 @@ static int math_parser_precedence(Token operator, bool unary)
   assert(0 && "unreachable");
 }
 
+static MathParserError math_parser_parse_one_token(MathParser *parser, const Token token, const Token lasttoken);
+static void math_parser_check_implicit_mult(MathParser *parser, const Token token, const Token lasttoken)
+{
+  // two consequtive numbers -> implicit multiplication
+  // could also be a variable (`x`) or compound expression (`(1+2)`)
+  // symbol followed by ( is recognized as function
+  if (lasttoken.kind == TK_REAL || lasttoken.kind == TK_INTEGER || lasttoken.kind == TK_CLOSE_PAREN || (lasttoken.kind == TK_SYMBOL && token.kind != TK_OPEN_PAREN))
+  {
+    Token newtoken = (Token) {
+      .kind = TK_OP,
+      .content = {
+        .data = "*",
+        .count = 1,
+      },
+      .loc = token.loc,
+      .as = {
+        .op = OP_MUL,
+      }
+    };
+    MathParserError err = math_parser_parse_one_token(parser, newtoken, lasttoken);
+    assert(err == MERR_OK);
+  }
+}
+
 static MathParserError math_parser_parse_one_token(MathParser *parser, const Token token, const Token lasttoken)
 {
   switch (token.kind) {
     case TK_INTEGER:
     case TK_REAL:
-      // two consequtive numbers -> implicit multiplication
-      if (lasttoken.kind == TK_REAL || lasttoken.kind == TK_INTEGER || lasttoken.kind == TK_CLOSE_PAREN)
-      {
-        Token newtoken = (Token) {
-          .kind = TK_OP,
-          .content = {
-            .data = "*",
-            .count = 1,
-          },
-          .loc = token.loc,
-          .as = {
-            .op = OP_MUL,
-          }
-        };
-        math_parser_parse_one_token(parser, newtoken, lasttoken);
-      }
+      math_parser_check_implicit_mult(parser, token, lasttoken);
       arrput(parser->output_queue, (MathOperator) {.token=token});
       break;
+    case TK_SYMBOL: {
+      math_parser_check_implicit_mult(parser, token, lasttoken);
+      Token peek;
+      if (lexer_peek(&parser->lexer, &peek) == LERR_OK && peek.kind == TK_OPEN_PAREN)
+      {
+        MathOperator fn = (MathOperator) {
+          .token = token,
+          .function = true,
+          .nargs = 1,
+        };
+        arrput(parser->operator_stack, fn);
+      }
+      else
+      {
+        // variable
+        arrput(parser->output_queue, (MathOperator) {.token=token});
+      }
+    } break;
     case TK_OP: {
       bool unary = false;
       if ((token.as.op == OP_ADD || token.as.op == OP_SUB) && (lasttoken.kind == TK_OPEN_PAREN || lasttoken.kind == TK_OP))
@@ -84,22 +112,7 @@ static MathParserError math_parser_parse_one_token(MathParser *parser, const Tok
       arrput(parser->operator_stack, op);
     } break;
     case TK_OPEN_PAREN: {
-      // number followed by ( -> implicit multiplication
-      if (lasttoken.kind == TK_REAL || lasttoken.kind == TK_INTEGER || lasttoken.kind == TK_CLOSE_PAREN)
-      {
-        Token newtoken = (Token) {
-          .kind = TK_OP,
-          .content = {
-            .data = "*",
-            .count = 1,
-          },
-          .loc = token.loc,
-          .as = {
-            .op = OP_MUL,
-          }
-        };
-        math_parser_parse_one_token(parser, newtoken, lasttoken);
-      }
+      math_parser_check_implicit_mult(parser, token, lasttoken);
       MathOperator op = (MathOperator) {
         .token = token,
         .precedence = 100,
@@ -122,13 +135,18 @@ static MathParserError math_parser_parse_one_token(MathParser *parser, const Tok
       }
       assert(parser->operator_stack[len - 1].token.kind == TK_OPEN_PAREN);
       (void) arrpop(parser->operator_stack);
-      // TODO: handle function
+
+      len = arrlenu(parser->operator_stack);
+      if (len > 0 && parser->operator_stack[len - 1].function)
+      {
+        arrput(parser->output_queue, arrpop(parser->operator_stack));
+      }
     } break;
   }
   return MERR_OK;
 }
 
-static MathParserError math_parser_check_operand(MathOperator operand)
+static MathParserError math_parser_check_operand(const MathOperator operand)
 {
   if (operand.token.kind != TK_INTEGER && operand.token.kind != TK_REAL)
   {
@@ -138,7 +156,7 @@ static MathParserError math_parser_check_operand(MathOperator operand)
   return MERR_OK;
 }
 
-static MathParserError math_parser_handle_binary(MathOperator left, MathOperator right, MathOperator op, MathOperator *res)
+static MathParserError math_parser_handle_binary(const MathOperator left, const MathOperator right, const MathOperator op, MathOperator *res)
 {
   MathParserError err = MERR_OK;
   MATH_PARSER_TRY(math_parser_check_operand(left));
@@ -209,7 +227,7 @@ return_defer:
   return err;
 }
 
-static MathParserError math_parser_handle_unary(MathOperator operand, MathOperator op, MathOperator *res)
+static MathParserError math_parser_handle_unary(const MathOperator operand, const MathOperator op, MathOperator *res)
 {
   MathParserError err = MERR_OK;
   MATH_PARSER_TRY(math_parser_check_operand(operand));
@@ -247,6 +265,35 @@ static MathParserError math_parser_handle_unary(MathOperator operand, MathOperat
   };
 return_defer:
   return err;
+}
+
+static MathParserError math_parser_handle_function(MathParser *parser, MathOperator *stack, const MathOperator op, MathOperator *res)
+{
+  assert(op.nargs == 1 && "For now, only single-argument functions are implemented");
+  const MathOperator arg = arrpop(stack);
+  const double dvalue = arg.token.kind == TK_REAL ? arg.token.as.real.value : (double)arg.token.as.integer.value;
+  double result;
+  if (sv_eq_ignorecase(op.token.content, SV("sin")))
+  {
+    result = sin(dvalue);
+  }
+  else
+  {
+    lexer_dump_err(op.token.loc, stderr, "Unrecognized function " SV_Fmt, SV_Arg(op.token.content));
+    return MERR_UNRECOGNIZED_SYMBOL;
+  }
+  *res = (MathOperator) {
+    .token = {
+      .kind = TK_REAL,
+      .loc = op.token.loc,
+      .as = {
+        .real = {
+          .value = result,
+        }
+      }
+    }
+  };
+  return MERR_OK;
 }
 
 // Implementation
@@ -305,7 +352,12 @@ MathParserError math_parser_eval(MathParser *parser, double *result)
       arrput(stack, op);
       continue;
     }
-    else if (op.token.kind != TK_OP)
+    else if (op.token.kind == TK_SYMBOL && !op.function)
+    {
+      lexer_dump_err(op.token.loc, stderr, "Sorry, variables are not implemented yet");
+      RETURN(MERR_OPERATOR_ERROR);
+    }
+    else if (op.token.kind != TK_OP && op.token.kind != TK_SYMBOL)
     {
       lexer_dump_err(op.token.loc, stderr, "Expected operator, got " SV_Fmt, SV_Arg(op.token.content));
       RETURN(MERR_OPERATOR_ERROR);
@@ -315,7 +367,11 @@ MathParserError math_parser_eval(MathParser *parser, double *result)
       lexer_dump_err(op.token.loc, stderr, "Not enough operands for operator " SV_Fmt, SV_Arg(op.token.content));
       RETURN(MERR_OPERATOR_ERROR);
     }
-    if (op.nargs == 1)
+    if (op.function)
+    {
+      MATH_PARSER_TRY(math_parser_handle_function(parser, stack, op, &opresult));
+    }
+    else if (op.nargs == 1)
     {
       MATH_PARSER_TRY(math_parser_handle_unary(arrpop(stack), op, &opresult));
     }

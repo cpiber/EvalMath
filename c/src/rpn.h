@@ -6,6 +6,7 @@ typedef struct {
   Token token;
   int precedence;
   bool right_associative;
+  bool function;
   size_t nargs;
 } MathOperator;
 
@@ -22,6 +23,7 @@ typedef enum {
   MERR_UNEXPECTED_OPERATOR,
   MERR_OPERATOR_ERROR,
   MERR_INPUT_EMPTY,
+  MERR_UNRECOGNIZED_SYMBOL,
 } MathParserError;
 
 #define RETURN(v) do { \
