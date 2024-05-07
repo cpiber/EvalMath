@@ -182,6 +182,9 @@ static MathParserError math_parser_parse_one_token(MathParser *parser, const Tok
       len = arrlenu(parser->operator_stack);
       if (len > 0 && parser->operator_stack[len - 1].function)
       {
+        // TODO: verify that arguments are well-formed
+        // at the moment, something like this is accepted: cos(1+)1
+        // the evaluation complains about arguments for implicit mult, not add
         arrput(parser->output_queue, arrpop(parser->operator_stack));
       }
     } break;
