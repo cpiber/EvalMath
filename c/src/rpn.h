@@ -11,6 +11,15 @@ typedef struct {
 } MathOperator;
 
 typedef struct {
+  String_View name;
+  size_t nargs;
+  union {
+    double (*unary)(double);
+    double (*binary)(double, double);
+  } as;
+} MathBuiltinFunction;
+
+typedef struct {
   Lexer lexer;
   MathOperator *output_queue;
   MathOperator *operator_stack;

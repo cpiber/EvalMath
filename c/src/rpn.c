@@ -6,6 +6,46 @@
 #define STB_DS_IMPLEMENTATION
 #include "stb_ds.h"
 
+static double math_parser_log(double a, double b)
+{
+  return log(a) / log(b);
+}
+
+static MathBuiltinFunction MATH_PARSER_BUILTIN_FUNCTIONS[] = {
+#define UNARY(fname)           \
+  {                            \
+    .name = SV_STATIC(#fname), \
+    .nargs = 1,                \
+    .as = {                    \
+      .unary = fname,          \
+    },                         \
+  },
+  UNARY(sin)
+  UNARY(cos)
+  UNARY(tan)
+  UNARY(asin)
+  UNARY(acos)
+  UNARY(atan)
+  UNARY(sqrt)
+  UNARY(log2)
+  UNARY(log10)
+#undef UNARY
+  {
+    .name = SV_STATIC("ln"),
+    .nargs = 1,
+    .as = {
+      .unary = log,
+    },
+  },
+  {
+    .name = SV_STATIC("log"),
+    .nargs = 2,
+    .as = {
+      .binary = math_parser_log,
+    },
+  },
+};
+
 // Private functions
 
 static MathOperator math_parser_last_op(const MathParser *const parser)
@@ -139,6 +179,7 @@ static MathParserError math_parser_parse_one_token(MathParser *parser, const Tok
       len = arrlenu(parser->operator_stack);
       if (len > 0 && parser->operator_stack[len - 1].function)
       {
+        // TODO: check the arity of the popped function and make sure enough arguments are provided
         arrput(parser->output_queue, arrpop(parser->operator_stack));
       }
     } break;
@@ -272,28 +313,32 @@ static MathParserError math_parser_handle_function(MathParser *parser, MathOpera
   assert(op.nargs == 1 && "For now, only single-argument functions are implemented");
   const MathOperator arg = arrpop(stack);
   const double dvalue = arg.token.kind == TK_REAL ? arg.token.as.real.value : (double)arg.token.as.integer.value;
-  double result;
-  if (sv_eq_ignorecase(op.token.content, SV("sin")))
+  for (size_t i = 0; i < sizeof(MATH_PARSER_BUILTIN_FUNCTIONS)/sizeof(MATH_PARSER_BUILTIN_FUNCTIONS[0]); ++i)
   {
-    result = sin(dvalue);
-  }
-  else
-  {
-    lexer_dump_err(op.token.loc, stderr, "Unrecognized function " SV_Fmt, SV_Arg(op.token.content));
-    return MERR_UNRECOGNIZED_SYMBOL;
-  }
-  *res = (MathOperator) {
-    .token = {
-      .kind = TK_REAL,
-      .loc = op.token.loc,
-      .as = {
-        .real = {
-          .value = result,
-        }
+    if (sv_eq_ignorecase(op.token.content, MATH_PARSER_BUILTIN_FUNCTIONS[i].name) && op.nargs == MATH_PARSER_BUILTIN_FUNCTIONS[i].nargs)
+    {
+      double result;
+      switch (MATH_PARSER_BUILTIN_FUNCTIONS[i].nargs) {
+        case 1: result = MATH_PARSER_BUILTIN_FUNCTIONS[i].as.unary(dvalue); break;
+        case 2: assert(0 && "not implemented"); break;
+        default: assert(0 && "unreachable"); break;
       }
+      *res = (MathOperator) {
+        .token = {
+          .kind = TK_REAL,
+          .loc = op.token.loc,
+          .as = {
+            .real = {
+              .value = result,
+            }
+          }
+        }
+      };
+      return MERR_OK;
     }
-  };
-  return MERR_OK;
+  }
+  lexer_dump_err(op.token.loc, stderr, "Unrecognized function " SV_Fmt " with %zu arguments", SV_Arg(op.token.content), op.nargs);
+  return MERR_UNRECOGNIZED_SYMBOL;
 }
 
 // Implementation
