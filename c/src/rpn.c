@@ -6,6 +6,8 @@
 #define STB_DS_IMPLEMENTATION
 #include "stb_ds.h"
 
+#define ALEN(x) (sizeof(x)/sizeof((x)[0]))
+
 static double math_parser_log(double a, double b)
 {
   return log(a) / log(b);
@@ -106,12 +108,13 @@ static MathParserError math_parser_parse_one_token(MathParser *parser, const Tok
     case TK_SYMBOL: {
       math_parser_check_implicit_mult(parser, token, lasttoken);
       Token peek;
-      if (lexer_peek(&parser->lexer, &peek) == LERR_OK && peek.kind == TK_OPEN_PAREN)
+      Lexer peek_lexer = parser->lexer;
+      if (lexer_next_token(&peek_lexer, &peek) == LERR_OK && peek.kind == TK_OPEN_PAREN)
       {
         MathOperator fn = (MathOperator) {
           .token = token,
           .function = true,
-          .nargs = 1,
+          .nargs = lexer_next_token(&peek_lexer, &peek) == LERR_OK && peek.kind != TK_CLOSE_PAREN ? 1 : 0,
         };
         arrput(parser->operator_stack, fn);
       }
@@ -179,7 +182,6 @@ static MathParserError math_parser_parse_one_token(MathParser *parser, const Tok
       len = arrlenu(parser->operator_stack);
       if (len > 0 && parser->operator_stack[len - 1].function)
       {
-        // TODO: check the arity of the popped function and make sure enough arguments are provided
         arrput(parser->output_queue, arrpop(parser->operator_stack));
       }
     } break;
@@ -310,10 +312,9 @@ return_defer:
 
 static MathParserError math_parser_handle_function(MathParser *parser, MathOperator *stack, const MathOperator op, MathOperator *res)
 {
-  assert(op.nargs == 1 && "For now, only single-argument functions are implemented");
   const MathOperator arg = arrpop(stack);
   const double dvalue = arg.token.kind == TK_REAL ? arg.token.as.real.value : (double)arg.token.as.integer.value;
-  for (size_t i = 0; i < sizeof(MATH_PARSER_BUILTIN_FUNCTIONS)/sizeof(MATH_PARSER_BUILTIN_FUNCTIONS[0]); ++i)
+  for (size_t i = 0; i < ALEN(MATH_PARSER_BUILTIN_FUNCTIONS); ++i)
   {
     if (sv_eq_ignorecase(op.token.content, MATH_PARSER_BUILTIN_FUNCTIONS[i].name) && op.nargs == MATH_PARSER_BUILTIN_FUNCTIONS[i].nargs)
     {
@@ -337,7 +338,14 @@ static MathParserError math_parser_handle_function(MathParser *parser, MathOpera
       return MERR_OK;
     }
   }
-  lexer_dump_err(op.token.loc, stderr, "Unrecognized function " SV_Fmt " with %zu arguments", SV_Arg(op.token.content), op.nargs);
+  lexer_dump_err(op.token.loc, stderr, "Unrecognized function " SV_Fmt " with %zu argument(s)", SV_Arg(op.token.content), op.nargs);
+  for (size_t i = 0; i < ALEN(MATH_PARSER_BUILTIN_FUNCTIONS); ++i)
+  {
+    if (sv_eq_ignorecase(op.token.content, MATH_PARSER_BUILTIN_FUNCTIONS[i].name))
+    {
+      fprintf(stderr, "NOTE: This function exists with %zu argument(s)\n", MATH_PARSER_BUILTIN_FUNCTIONS[i].nargs);
+    }
+  }
   return MERR_UNRECOGNIZED_SYMBOL;
 }
 
