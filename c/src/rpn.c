@@ -203,11 +203,7 @@ static MathParserError math_parser_parse_one_token(MathParser *parser, const Tok
         if (top_op.token.kind != TK_OP) break; // drain until (
         arrput(parser->output_queue, arrpop(parser->operator_stack));
       }
-      if (len == 0)
-      {
-        lexer_dump_err(token.loc, stderr, "Got separator without function call; multiple equations are not implemented yet");
-        return MERR_UNBALANCED_PARENTHESIS;
-      }
+      assert(len > 0 && "Should have been caught at top");
       assert(parser->operator_stack[len - 1].token.kind == TK_OPEN_PAREN);
       if (len == 1 || !parser->operator_stack[len - 2].function)
       {
@@ -223,6 +219,7 @@ static MathParserError math_parser_parse_one_token(MathParser *parser, const Tok
         .precedence = 100,
       };
       arrput(parser->operator_stack, op);
+      ++parser->paren_depth;
     } break;
     case TK_CLOSE_PAREN: {
       if (lasttoken.kind == TK_OP)
@@ -252,6 +249,8 @@ static MathParserError math_parser_parse_one_token(MathParser *parser, const Tok
       }
       assert(parser->operator_stack[len - 1].token.kind == TK_OPEN_PAREN);
       (void) arrpop(parser->operator_stack);
+      assert(parser->paren_depth > 0);
+      --parser->paren_depth;
 
       len = arrlenu(parser->operator_stack);
       if (len > 0 && parser->operator_stack[len - 1].function)
@@ -475,13 +474,16 @@ MathParserError math_parser_rpn(MathParser *parser)
   Token lasttoken = (Token) {
     .kind = TK_OPEN_PAREN,
   };
+  parser->paren_depth = 0;
   while ((err = lexer_next_token(&parser->lexer, &token)) == LERR_OK)
   {
+    // separate equations
+    if (token.kind == TK_SEPARATOR && parser->paren_depth == 0) break;
     MathParserError err = math_parser_parse_one_token(parser, token, lasttoken);
     if (err != MERR_OK) return err;
     lasttoken = token;
   }
-  if (err != LERR_EOF)
+  if (err != LERR_EOF && err != LERR_OK)
     return MERR_LEXER_ERROR;
   if (lasttoken.kind == TK_OP)
   {
@@ -500,6 +502,7 @@ MathParserError math_parser_rpn(MathParser *parser)
     }
     arrput(parser->output_queue, arrpop(parser->operator_stack));
   }
+  assert(parser->paren_depth == 0);
   return MERR_OK;
 }
 

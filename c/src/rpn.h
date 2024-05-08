@@ -29,6 +29,7 @@ typedef struct {
   Lexer lexer;
   MathOperator *output_queue;
   MathOperator *operator_stack;
+  size_t paren_depth;
 } MathParser;
 
 typedef enum {
