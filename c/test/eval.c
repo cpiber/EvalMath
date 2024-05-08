@@ -128,7 +128,7 @@ void testDefVars() {
 void testSyntax() {
   assertEquals(2., eval("+2"), 0.001); // unary +
   evalErr("   ( 2 + 3  ", MERR_UNBALANCED_PARENTHESIS); // )
-  evalErr("  e ( 1 , 2 )", MERR_UNRECOGNIZED_SYMBOL); // ,
+  evalErr("  e ( 1 , 2 )", MERR_UNBALANCED_PARENTHESIS); // ,
   evalErr(" sin(pi, pi) ", MERR_UNRECOGNIZED_SYMBOL); // 1 arg (got 2)
   // assertEquals(null, eval(" log ( 2 )")); // 2 args (got 1)
   // assertEquals(null, eval("$"));
@@ -136,6 +136,7 @@ void testSyntax() {
 
 int main(int argc, char **argv)
 {
+  fclose(stderr);
   testSimpleEqs();
   testFloat();
   testOperatorPrecedence();

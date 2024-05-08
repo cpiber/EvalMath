@@ -72,6 +72,32 @@ static MathBuiltinConstant MATH_PARSER_BUILTIN_CONSTANTS[] = {
 
 // Private functions
 
+static bool math_parser_has_function(const MathParser *const parser, String_View name)
+{
+  (void) parser;
+  for (size_t i = 0; i < ALEN(MATH_PARSER_BUILTIN_FUNCTIONS); ++i)
+  {
+    if (sv_eq_ignorecase(name, MATH_PARSER_BUILTIN_FUNCTIONS[i].name))
+    {
+      return true;
+    }
+  }
+  return false;
+}
+
+static bool math_parser_has_variable(const MathParser *const parser, String_View name)
+{
+  (void) parser;
+  for (size_t i = 0; i < ALEN(MATH_PARSER_BUILTIN_CONSTANTS); ++i)
+  {
+    if (sv_eq_ignorecase(name, MATH_PARSER_BUILTIN_CONSTANTS[i].name))
+    {
+      return true;
+    }
+  }
+  return false;
+}
+
 static MathOperator math_parser_last_op(const MathParser *const parser)
 {
   size_t len = arrlenu(parser->operator_stack);
@@ -131,7 +157,12 @@ static MathParserError math_parser_parse_one_token(MathParser *parser, const Tok
       math_parser_check_implicit_mult(parser, token, lasttoken);
       Token peek;
       Lexer peek_lexer = parser->lexer;
-      if (lexer_next_token(&peek_lexer, &peek) == LERR_OK && peek.kind == TK_OPEN_PAREN)
+      bool function = false;
+      if (math_parser_has_function(parser, token.content)) function = true;
+      else if (math_parser_has_variable(parser, token.content)) function = false;
+      else if (lexer_next_token(&peek_lexer, &peek) == LERR_OK && peek.kind == TK_OPEN_PAREN) function = true;
+
+      if (function)
       {
         MathOperator fn = (MathOperator) {
           .token = token,
