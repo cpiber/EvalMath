@@ -383,7 +383,7 @@ return_defer:
   return err;
 }
 
-static MathParserError math_parser_handle_function(MathParser *parser, MathOperator *stack, const MathOperator op, MathOperator *res)
+static MathParserError math_parser_handle_function(MathParser *parser, const MathOperator *stack, const MathOperator op, MathOperator *res)
 {
   const MathOperator arg = arrpop(stack);
   MathParserError err;
