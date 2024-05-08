@@ -2,6 +2,7 @@
 #include "lexer.h"
 #include <math.h>
 #include <stdint.h>
+#include <string.h>
 #define STB_DS_IMPLEMENTATION
 #include "stb_ds.h"
 
@@ -48,7 +49,7 @@ static MathBuiltinFunction MATH_PARSER_BUILTIN_FUNCTIONS[] = {
   },
 };
 
-static MathBuiltinConstant MATH_PARSER_BUILTIN_CONSTANTS[] = {
+static MathVariable MATH_PARSER_BUILTIN_CONSTANTS[] = {
 #define _VAL(X) X
 #define CONST(cname) \
   { \
@@ -87,10 +88,17 @@ static bool math_parser_has_function(const MathParser *const parser, String_View
 
 static bool math_parser_has_variable(const MathParser *const parser, String_View name)
 {
-  (void) parser;
   for (size_t i = 0; i < ALEN(MATH_PARSER_BUILTIN_CONSTANTS); ++i)
   {
     if (sv_eq_ignorecase(name, MATH_PARSER_BUILTIN_CONSTANTS[i].name))
+    {
+      return true;
+    }
+  }
+  size_t size = arrlenu(parser->variables);
+  for (size_t i = 0; i < size; ++i)
+  {
+    if (sv_eq_ignorecase(name, parser->variables[i].name))
     {
       return true;
     }
@@ -289,6 +297,10 @@ static MathParserError math_parser_parse_one_token(MathParser *parser, const Tok
         arrput(parser->output_queue, arrpop(parser->operator_stack));
       }
     } break;
+    case TK_ASSIGN: {
+      lexer_dump_err(token.loc, stderr, "Unexpected assignment inside expression");
+      return MERR_UNEXPECTED_OPERATOR;
+    } break;
   }
   return MERR_OK;
 }
@@ -467,23 +479,21 @@ return_defer:
 
 static MathParserError math_parser_handle_variable(MathParser *parser, const MathOperator var, MathOperator *res)
 {
-  for (size_t i = 0; i < ALEN(MATH_PARSER_BUILTIN_CONSTANTS); ++i)
+  double value;
+  if (math_parser_get_var(parser, var.token.content, &value))
   {
-    if (sv_eq_ignorecase(var.token.content, MATH_PARSER_BUILTIN_CONSTANTS[i].name))
-    {
-      *res = (MathOperator) {
-        .token = {
-          .kind = TK_REAL,
-          .loc = var.token.loc,
-          .as = {
-            .real = {
-              .value = MATH_PARSER_BUILTIN_CONSTANTS[i].value,
-            }
+    *res = (MathOperator) {
+      .token = {
+        .kind = TK_REAL,
+        .loc = var.token.loc,
+        .as = {
+          .real = {
+            .value = value,
           }
         }
-      };
-      return MERR_OK;
-    }
+      }
+    };
+    return MERR_OK;
   }
   lexer_dump_err(var.token.loc, stderr, "Unrecognized variable " SV_Fmt, SV_Arg(var.token.content));
   return MERR_UNRECOGNIZED_SYMBOL;
@@ -509,6 +519,24 @@ MathParserError math_parser_rpn(MathParser *parser)
     .kind = TK_OPEN_PAREN,
   };
   parser->paren_depth = 0;
+  {
+    Lexer peek = parser->lexer;
+    while ((err = lexer_next_token(&peek, &token)) == LERR_OK)
+    {
+      if (token.kind != TK_SYMBOL) break;
+      Token peektoken;
+      if (lexer_next_token(&peek, &peektoken) != LERR_OK || peektoken.kind != TK_ASSIGN) break;
+      // got `<var> =`, push the var to the operator stack -> will be evaluated last
+      // make sure to not include it in actual parsing
+      MathOperator var = (MathOperator) {
+        .token = token,
+        .precedence = -1000,
+        .assignment = true,
+      };
+      arrput(parser->operator_stack, var);
+      parser->lexer = peek;
+    }
+  }
   while ((err = lexer_next_token(&parser->lexer, &token)) == LERR_OK)
   {
     // separate equations
@@ -529,7 +557,7 @@ MathParserError math_parser_rpn(MathParser *parser)
   while (arrlenu(parser->operator_stack) > 0)
   {
     top_op = math_parser_last_op(parser);
-    if (top_op.token.kind != TK_OP)
+    if (top_op.token.kind != TK_OP && !top_op.assignment)
     {
       lexer_dump_err(top_op.token.loc, stderr, "Unbalanced parenthesis, this ( was not closed");
       return MERR_UNBALANCED_PARENTHESIS;
@@ -546,10 +574,11 @@ MathParserError math_parser_eval(MathParser *parser, double *result)
   MathOperator op, opresult;
   MathOperator *stack = NULL;
   MathParserError err = MERR_OK;
-  size_t size = arrlenu(parser->output_queue);
-  for (size_t i = 0; i < size; ++i)
+  size_t size = arrlenu(parser->output_queue), i = 0;
+  for (; i < size; ++i)
   {
     op = parser->output_queue[i];
+    if (op.assignment) break;
     if (op.token.kind == TK_INTEGER || op.token.kind == TK_REAL)
     {
       arrput(stack, op);
@@ -591,9 +620,6 @@ MathParserError math_parser_eval(MathParser *parser, double *result)
     }
     arrput(stack, opresult);
   }
-  // should be pop from front -> iterate, then clear
-  // allows to reuse allocated memory for next run
-  arrsetlen(parser->output_queue, 0);
   size = arrlenu(stack);
   if (size == 0)
   {
@@ -606,6 +632,25 @@ MathParserError math_parser_eval(MathParser *parser, double *result)
   }
   opresult = arrpop(stack);
   MATH_PARSER_TRY(math_parser_check_operand(opresult, result));
+  // handle assignments now
+  size = arrlenu(parser->output_queue);
+  for (; i < size; ++i)
+  {
+    op = parser->output_queue[i];
+    assert(op.assignment && "Expected to only have assignments on the stack by now");
+    if (!math_parser_set_var(parser, op.token.content, *result))
+    {
+      lexer_dump_err(op.token.loc, stderr, "Variable with name " SV_Fmt " already set", SV_Arg(op.token.content));
+      double val;
+      bool worked = math_parser_get_var(parser, op.token.content, &val);
+      assert(worked && "We just got a fail...");
+      fprintf(stderr, "NOTE: It has this value: %lf\n", val);
+      RETURN(MERR_SYMBOL_ALREADY_SET);
+    }
+  }
+  // should be pop from front -> iterate, then clear
+  // allows to reuse allocated memory for next run
+  arrsetlen(parser->output_queue, 0);
 return_defer:
   arrfree(stack);
   return err;
@@ -616,6 +661,12 @@ void math_parser_free(MathParser *parser)
   assert(parser != NULL);
   arrfree(parser->output_queue);
   arrfree(parser->operator_stack);
+  size_t size = arrlenu(parser->variables);
+  for (size_t i = 0; i < size; ++i)
+  {
+    free((void *) parser->variables[i].name.data);
+  }
+  arrfree(parser->variables);
 }
 
 void math_parser_clear(MathParser *parser)
@@ -647,4 +698,43 @@ return_defer:
     lexer_dump_err(parser->lexer.loc, stderr, "Input empty");
   }
   return err;
+}
+
+bool math_parser_set_var(MathParser *parser, String_View name, double value)
+{
+  if (math_parser_get_var(parser, name, NULL)) return false;
+  char *ndata = malloc(name.count * sizeof(name.data[0]));
+  assert(ndata != NULL);
+  memcpy(ndata, name.data, name.count * sizeof(name.data[0]));
+  MathVariable var = (MathVariable) {
+    .name = {
+      .data = ndata,
+      .count = name.count,
+    },
+    .value = value,
+  };
+  arrput(parser->variables, var);
+  return true;
+}
+
+bool math_parser_get_var(MathParser *parser, String_View name, double *value)
+{
+  for (size_t i = 0; i < ALEN(MATH_PARSER_BUILTIN_CONSTANTS); ++i)
+  {
+    if (sv_eq_ignorecase(name, MATH_PARSER_BUILTIN_CONSTANTS[i].name))
+    {
+      if (value) *value = MATH_PARSER_BUILTIN_CONSTANTS[i].value;
+      return true;
+    }
+  }
+  size_t size = arrlenu(parser->variables);
+  for (size_t i = 0; i < size; ++i)
+  {
+    if (sv_eq_ignorecase(name, parser->variables[i].name))
+    {
+      if (value) *value = parser->variables[i].value;
+      return true;
+    }
+  }
+  return false;
 }
