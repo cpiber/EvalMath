@@ -262,12 +262,16 @@ static MathParserError math_parser_parse_one_token(MathParser *parser, const Tok
   return MERR_OK;
 }
 
-static MathParserError math_parser_check_operand(const MathOperator operand)
+static MathParserError math_parser_check_operand(const MathOperator operand, double *doubleval)
 {
   if (operand.token.kind != TK_INTEGER && operand.token.kind != TK_REAL)
   {
     lexer_dump_err(operand.token.loc, stderr, "Expected a number, got " SV_Fmt, SV_Arg(operand.token.content));
     return MERR_OPERATOR_ERROR;
+  }
+  if (doubleval)
+  {
+    *doubleval = operand.token.kind == TK_INTEGER ? (double) operand.token.as.integer.value : operand.token.as.real.value;
   }
   return MERR_OK;
 }
@@ -275,8 +279,9 @@ static MathParserError math_parser_check_operand(const MathOperator operand)
 static MathParserError math_parser_handle_binary(const MathOperator left, const MathOperator right, const MathOperator op, MathOperator *res)
 {
   MathParserError err = MERR_OK;
-  MATH_PARSER_TRY(math_parser_check_operand(left));
-  MATH_PARSER_TRY(math_parser_check_operand(right));
+  double left_value, right_value;
+  MATH_PARSER_TRY(math_parser_check_operand(left, &left_value));
+  MATH_PARSER_TRY(math_parser_check_operand(right, &right_value));
   assert(op.token.kind == TK_OP);
   if (left.token.kind == TK_INTEGER && right.token.kind == TK_INTEGER && op.token.as.op != OP_DIV && op.token.as.op != OP_EXP)
   {
@@ -308,8 +313,6 @@ static MathParserError math_parser_handle_binary(const MathOperator left, const 
     };
     return MERR_OK;
   }
-  double left_value = left.token.kind == TK_INTEGER ? (double) left.token.as.integer.value : left.token.as.real.value;
-  double right_value = right.token.kind == TK_INTEGER ? (double) right.token.as.integer.value : right.token.as.real.value;
   double result;
   switch (op.token.as.op) {
     case OP_ADD:
@@ -346,7 +349,7 @@ return_defer:
 static MathParserError math_parser_handle_unary(const MathOperator operand, const MathOperator op, MathOperator *res)
 {
   MathParserError err = MERR_OK;
-  MATH_PARSER_TRY(math_parser_check_operand(operand));
+  MATH_PARSER_TRY(math_parser_check_operand(operand, NULL));
   if (op.token.as.op == OP_ADD)
   {
     *res = operand;
@@ -387,8 +390,8 @@ static MathParserError math_parser_handle_function(MathParser *parser, const Mat
 {
   const MathOperator arg = arrpop(stack);
   MathParserError err;
-  MATH_PARSER_TRY(math_parser_check_operand(arg));
-  const double dvalue = arg.token.kind == TK_REAL ? arg.token.as.real.value : (double)arg.token.as.integer.value;
+  double dvalue;
+  MATH_PARSER_TRY(math_parser_check_operand(arg, &dvalue));
   for (size_t i = 0; i < ALEN(MATH_PARSER_BUILTIN_FUNCTIONS); ++i)
   {
     if (sv_eq_ignorecase(op.token.content, MATH_PARSER_BUILTIN_FUNCTIONS[i].name) && op.nargs == MATH_PARSER_BUILTIN_FUNCTIONS[i].nargs)
@@ -398,8 +401,8 @@ static MathParserError math_parser_handle_function(MathParser *parser, const Mat
         case 1: result = MATH_PARSER_BUILTIN_FUNCTIONS[i].as.unary(dvalue); break;
         case 2: {
           const MathOperator arg1 = arrpop(stack);
-          MATH_PARSER_TRY(math_parser_check_operand(arg1));
-          const double dvalue1 = arg1.token.kind == TK_REAL ? arg1.token.as.real.value : (double)arg1.token.as.integer.value;
+          double dvalue1;
+          MATH_PARSER_TRY(math_parser_check_operand(arg1, &dvalue1));
           result = MATH_PARSER_BUILTIN_FUNCTIONS[i].as.binary(dvalue1, dvalue);
         } break;
         default: assert(0 && "unreachable"); break;
@@ -569,8 +572,7 @@ MathParserError math_parser_eval(MathParser *parser, double *result)
     RETURN(MERR_OPERATOR_ERROR);
   }
   opresult = arrpop(stack);
-  MATH_PARSER_TRY(math_parser_check_operand(opresult));
-  *result = opresult.token.kind == TK_REAL ? opresult.token.as.real.value : (double) opresult.token.as.integer.value;
+  MATH_PARSER_TRY(math_parser_check_operand(opresult, result));
 return_defer:
   arrfree(stack);
   return err;
