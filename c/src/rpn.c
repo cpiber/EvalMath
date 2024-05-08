@@ -438,6 +438,12 @@ MathParserError math_parser_rpn(MathParser *parser)
   }
   if (err != LERR_EOF)
     return MERR_LEXER_ERROR;
+  if (lasttoken.kind == TK_OP)
+  {
+    lexer_dump_err(parser->lexer.loc, stderr, "Unexpected end of input, expected expression");
+    fprintf(stderr, LOC_FMT ": NOTE: Preceded by this operator " SV_Fmt "\n", LOC_ARG(lasttoken.loc), SV_Arg(lasttoken.content));
+    return MERR_UNEXPECTED_OPERATOR;
+  }
   MathOperator top_op;
   while (arrlenu(parser->operator_stack) > 0)
   {
