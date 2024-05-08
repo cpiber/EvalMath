@@ -132,8 +132,14 @@ static MathParserError math_parser_parse_one_token(MathParser *parser, const Tok
       }
       else if (lasttoken.kind == TK_OP)
       {
-        lexer_dump_err(token.loc, stderr, "Unexpected operator " SV_Fmt, SV_Arg(token.content));
+        lexer_dump_err(token.loc, stderr, "Unexpected operator " SV_Fmt ", expected expression", SV_Arg(token.content));
         fprintf(stderr, LOC_FMT ": NOTE: Preceded by this operator " SV_Fmt "\n", LOC_ARG(lasttoken.loc), SV_Arg(lasttoken.content));
+        return MERR_UNEXPECTED_OPERATOR;
+      }
+      else if (lasttoken.kind == TK_OPEN_PAREN)
+      {
+        lexer_dump_err(token.loc, stderr, "Unexpected operator " SV_Fmt ", expected expression", SV_Arg(token.content));
+        fprintf(stderr, LOC_FMT ": NOTE: Preceded by this (\n", LOC_ARG(lasttoken.loc));
         return MERR_UNEXPECTED_OPERATOR;
       }
       MathOperator op = (MathOperator) {
@@ -163,6 +169,12 @@ static MathParserError math_parser_parse_one_token(MathParser *parser, const Tok
       arrput(parser->operator_stack, op);
     } break;
     case TK_CLOSE_PAREN: {
+      if (lasttoken.kind == TK_OP)
+      {
+        lexer_dump_err(token.loc, stderr, "Unexpected ), expected expression");
+        fprintf(stderr, LOC_FMT ": NOTE: Preceded by this operator " SV_Fmt "\n", LOC_ARG(lasttoken.loc), SV_Arg(lasttoken.content));
+        return MERR_UNEXPECTED_OPERATOR;
+      }
       MathOperator top_op;
       size_t len;
       while ((len = arrlenu(parser->operator_stack)) > 0)
@@ -182,9 +194,6 @@ static MathParserError math_parser_parse_one_token(MathParser *parser, const Tok
       len = arrlenu(parser->operator_stack);
       if (len > 0 && parser->operator_stack[len - 1].function)
       {
-        // TODO: verify that arguments are well-formed
-        // at the moment, something like this is accepted: cos(1+)1
-        // the evaluation complains about arguments for implicit mult, not add
         arrput(parser->output_queue, arrpop(parser->operator_stack));
       }
     } break;
