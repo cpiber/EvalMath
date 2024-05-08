@@ -4,9 +4,12 @@
 #include "rpn.h"
 #include "stb_ds.h"
 
-#define CHECK(e) do {     \
-  ssize_t ret = (e);      \
-  if (ret < 0) exit(ret); \
+#define CHECK(e) do { \
+  ssize_t ret = (e);  \
+  if (ret < 0) {      \
+    exitcode = ret;   \
+    goto ret;         \
+  }                   \
 } while(0)
 
 int main(int argc, char **argv)
@@ -14,6 +17,7 @@ int main(int argc, char **argv)
   MathParser parser = math_parser_init(EMPTY_LEXER);
   if (argc <= 1)
   {
+    int exitcode = 0;
     char *input = NULL;
     size_t size = 0;
     double result;
@@ -31,14 +35,19 @@ int main(int argc, char **argv)
       {
         printf("Result: %lf\n", result);
       }
+      else if (err == MERR_INPUT_EMPTY)
+      {
+        break;
+      }
       math_parser_clear(&parser);
       printf("Enter equation: ");
       len = getline(&input, &size, stdin);
       CHECK(len);
     }
+ret:
     free(input);
     math_parser_free(&parser);
-    return 0;
+    return exitcode;
   }
   else
   {
