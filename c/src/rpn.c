@@ -1,7 +1,6 @@
 #include "rpn.h"
 #include "lexer.h"
 #include <math.h>
-#include <math.h>
 #include <stdint.h>
 #define STB_DS_IMPLEMENTATION
 #include "stb_ds.h"
@@ -47,6 +46,28 @@ static MathBuiltinFunction MATH_PARSER_BUILTIN_FUNCTIONS[] = {
       .binary = math_parser_log,
     },
   },
+};
+
+static MathBuiltinConstant MATH_PARSER_BUILTIN_CONSTANTS[] = {
+#define _VAL(X) X
+#define CONST(cname) \
+  { \
+    .name = SV_STATIC(#cname), \
+    .value = _VAL(M_ ## cname), \
+  },
+  CONST(PI)
+  CONST(PI_2)
+  CONST(PI_4)
+  CONST(E)
+  CONST(LOG2E)
+  CONST(LOG10E)
+  CONST(LN2)
+  CONST(LN10)
+  CONST(LN2)
+  CONST(LN2)
+  CONST(SQRT2)
+#undef CONST
+#undef _VAL
 };
 
 // Private functions
@@ -411,6 +432,30 @@ return_defer:
   return err;
 }
 
+static MathParserError math_parser_handle_variable(MathParser *parser, const MathOperator var, MathOperator *res)
+{
+  for (size_t i = 0; i < ALEN(MATH_PARSER_BUILTIN_CONSTANTS); ++i)
+  {
+    if (sv_eq_ignorecase(var.token.content, MATH_PARSER_BUILTIN_CONSTANTS[i].name))
+    {
+      *res = (MathOperator) {
+        .token = {
+          .kind = TK_REAL,
+          .loc = var.token.loc,
+          .as = {
+            .real = {
+              .value = MATH_PARSER_BUILTIN_CONSTANTS[i].value,
+            }
+          }
+        }
+      };
+      return MERR_OK;
+    }
+  }
+  lexer_dump_err(var.token.loc, stderr, "Unrecognized variable " SV_Fmt, SV_Arg(var.token.content));
+  return MERR_UNRECOGNIZED_SYMBOL;
+}
+
 // Implementation
 
 MathParser math_parser_init(Lexer lexer)
@@ -475,8 +520,9 @@ MathParserError math_parser_eval(MathParser *parser, double *result)
     }
     else if (op.token.kind == TK_SYMBOL && !op.function)
     {
-      lexer_dump_err(op.token.loc, stderr, "Sorry, variables are not implemented yet");
-      RETURN(MERR_OPERATOR_ERROR);
+      MATH_PARSER_TRY(math_parser_handle_variable(parser, op, &opresult));
+      arrput(stack, opresult);
+      continue;
     }
     else if (op.token.kind != TK_OP && op.token.kind != TK_SYMBOL)
     {

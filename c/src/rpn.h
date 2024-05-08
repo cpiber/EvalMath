@@ -1,6 +1,7 @@
 #pragma once
 
 #include "lexer.h"
+#include "const.h"
 
 typedef struct {
   Token token;
@@ -18,6 +19,11 @@ typedef struct {
     double (*binary)(double, double);
   } as;
 } MathBuiltinFunction;
+
+typedef struct {
+  String_View name;
+  double value;
+} MathBuiltinConstant;
 
 typedef struct {
   Lexer lexer;
