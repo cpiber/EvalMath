@@ -2,6 +2,7 @@
 #include <assert.h>
 #include <math.h>
 #include "../src/rpn.h"
+#include "../src/const.h"
 
 #define assertEquals(expected, actual, epsilon) do {       \
   if (fabs((actual) - (expected)) > (epsilon)) {           \
@@ -16,12 +17,42 @@ static double eval(char *expr)
   MathParser parser = math_parser_init(lexer);
   double result;
   MathParserError err;
-  err = math_parser_rpn(&parser);
-  assert(err == MERR_OK);
-  err = math_parser_eval(&parser, &result);
-  assert(err == MERR_OK);
+  while (parser.lexer.content.count > 0)
+  {
+    err = math_parser_rpn(&parser);
+    assert(err == MERR_OK);
+    err = math_parser_eval(&parser, &result);
+    assert(err == MERR_OK || err == MERR_INPUT_EMPTY);
+  }
   math_parser_free(&parser);
   return result;
+}
+
+static void evalErr(char *expr, MathParserError expected)
+{
+  Lexer lexer = lexer_init("test", sv_from_cstr(expr));
+  MathParser parser = math_parser_init(lexer);
+  double result;
+  MathParserError err;
+  while (lexer.content.count > 0)
+  {
+    err = math_parser_rpn(&parser);
+    if (err == expected)
+    {
+      math_parser_free(&parser);
+      return;
+    }
+    assert(err == MERR_OK);
+    err = math_parser_eval(&parser, &result);
+    if (err == expected)
+    {
+      math_parser_free(&parser);
+      return;
+    }
+    assert(err == MERR_OK || err == MERR_INPUT_EMPTY);
+  }
+  math_parser_free(&parser);
+  assert(0 && "Got OK, expected error");
 }
 
 void testSimpleEqs() {
@@ -60,20 +91,20 @@ void testWhitespace() {
   assertEquals(-1.0, eval("    -  - -     1 "), 0.001);
 }
 
-// void testMultiStatements() {
-//   assertEquals(5.0, eval("1+2;5"), 0.001);
-//   assertEquals(3.0, eval("1+2;"), 0.001);
-//   assertEquals(3.0, eval(" 1+2 ;   "), 0.001);
-//   assertEquals(0.0, eval(" 1+2 ;   ;"), 0.001);
-//   assertEquals(0.0, eval(" 1+2 ;   ;   "), 0.001);
-// }
-// 
-// void testDefVars() {
-//   assertEquals(Math.PI, eval("pi"), 0.001);
-//   assertEquals(Math.E, eval("E"), 0.001);
-//   assertEquals(null, eval("undefinedvar"));
-// }
-// 
+void testMultiStatements() {
+  assertEquals(5.0, eval("1+2;5"), 0.001);
+  assertEquals(3.0, eval("1+2;"), 0.001);
+  assertEquals(3.0, eval(" 1+2 ;   "), 0.001);
+  assertEquals(3.0, eval(" 1+2 ;   ;"), 0.001);
+  assertEquals(3.0, eval(" 1+2 ;   ;   "), 0.001);
+}
+
+void testDefVars() {
+  assertEquals(M_PI, eval("pi"), 0.001);
+  assertEquals(M_E, eval("E"), 0.001);
+  evalErr("undefinedvar", MERR_UNRECOGNIZED_SYMBOL);
+}
+
 // void testUserVars() {
 //   assertEquals(Math.E * 2, eval("two_e=2E"), 0.001);
 //   assertEquals(Math.PI * 2, eval("two_pi  =   2 * PI  "), 0.001);
@@ -93,15 +124,15 @@ void testWhitespace() {
 //   assertEquals(Math.sin(2), eval("sin2"), 0.001);
 //   assertEquals(Math.log(1000) / Math.log(10), eval("log(1000, 10)"), 0.001);
 // }
-// 
-// void testSyntax() {
-//   assertEquals(null, eval("+2")); // unary +
-//   assertEquals(null, eval("   ( 2 + 3  ")); // )
-//   assertEquals(null, eval("  e ( 1 , 2 )")); // ,
-//   assertEquals(null, eval(" sin(pi, pi) ")); // 1 arg (got 2)
-//   assertEquals(null, eval(" log ( 2 )")); // 2 args (got 1)
-//   assertEquals(null, eval("$"));
-// }
+
+void testSyntax() {
+  assertEquals(2., eval("+2"), 0.001); // unary +
+  evalErr("   ( 2 + 3  ", MERR_UNBALANCED_PARENTHESIS); // )
+  evalErr("  e ( 1 , 2 )", MERR_UNRECOGNIZED_SYMBOL); // ,
+  evalErr(" sin(pi, pi) ", MERR_UNRECOGNIZED_SYMBOL); // 1 arg (got 2)
+  // assertEquals(null, eval(" log ( 2 )")); // 2 args (got 1)
+  // assertEquals(null, eval("$"));
+}
 
 int main(int argc, char **argv)
 {
@@ -110,11 +141,11 @@ int main(int argc, char **argv)
   testOperatorPrecedence();
   testBrackets();
   testWhitespace();
-  // testMultiStatements();
-  // testDefVars();
+  testMultiStatements();
+  testDefVars();
   // testUserVars();
   // testDefFunc();
-  // testSyntax();
+  testSyntax();
   printf("All tests passed\n");
   return 0;
 }

@@ -560,6 +560,9 @@ MathParserError math_parser_eval(MathParser *parser, double *result)
     }
     arrput(stack, opresult);
   }
+  // should be pop from front -> iterate, then clear
+  // allows to reuse allocated memory for next run
+  arrsetlen(parser->output_queue, 0);
   size = arrlenu(stack);
   if (size == 0)
   {
