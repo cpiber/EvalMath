@@ -230,6 +230,8 @@ LexerError lexer_next_token(Lexer *lexer, Token *token)
   }
   MAP('(', TK_OPEN_PAREN)
   MAP(')', TK_CLOSE_PAREN)
+  MAP(',', TK_SEPARATOR)
+  MAP(';', TK_SEPARATOR)
 #undef MAP
   else if (isalpha(c))
   {
@@ -269,6 +271,7 @@ const char *lexer_strtokenkind(TokenKind kind)
     case TK_OPEN_PAREN: return "OPEN_PAREN";
     case TK_CLOSE_PAREN: return "CLOSE_PAREN";
     case TK_SYMBOL: return "SYMBOL";
+    case TK_SEPARATOR: return "SEPARATOR";
   }
   assert(0 && "unreachable");
 }
@@ -287,6 +290,7 @@ void lexer_dump_token(Token token)
     case TK_OPEN_PAREN:
     case TK_CLOSE_PAREN:
     case TK_SYMBOL:
+    case TK_SEPARATOR:
       printf("\n");
       break;
   }

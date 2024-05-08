@@ -10,7 +10,7 @@
 
 static double math_parser_log(double a, double b)
 {
-  return log(a) / log(b);
+  return log(b) / log(a);
 }
 
 static MathBuiltinFunction MATH_PARSER_BUILTIN_FUNCTIONS[] = {
@@ -31,6 +31,7 @@ static MathBuiltinFunction MATH_PARSER_BUILTIN_FUNCTIONS[] = {
   UNARY(sqrt)
   UNARY(log2)
   UNARY(log10)
+  UNARY(log)
 #undef UNARY
   {
     .name = SV_STATIC("ln"),
@@ -136,10 +137,10 @@ static MathParserError math_parser_parse_one_token(MathParser *parser, const Tok
         fprintf(stderr, LOC_FMT ": NOTE: Preceded by this operator " SV_Fmt "\n", LOC_ARG(lasttoken.loc), SV_Arg(lasttoken.content));
         return MERR_UNEXPECTED_OPERATOR;
       }
-      else if (lasttoken.kind == TK_OPEN_PAREN)
+      else if (lasttoken.kind == TK_OPEN_PAREN || lasttoken.kind == TK_SEPARATOR)
       {
         lexer_dump_err(token.loc, stderr, "Unexpected operator " SV_Fmt ", expected expression", SV_Arg(token.content));
-        fprintf(stderr, LOC_FMT ": NOTE: Preceded by this (\n", LOC_ARG(lasttoken.loc));
+        fprintf(stderr, LOC_FMT ": NOTE: Preceded by this " SV_Fmt "\n", LOC_ARG(lasttoken.loc), SV_Arg(lasttoken.content));
         return MERR_UNEXPECTED_OPERATOR;
       }
       MathOperator op = (MathOperator) {
@@ -160,6 +161,40 @@ static MathParserError math_parser_parse_one_token(MathParser *parser, const Tok
       }
       arrput(parser->operator_stack, op);
     } break;
+    case TK_SEPARATOR: {
+      if (lasttoken.kind == TK_OP)
+      {
+        lexer_dump_err(token.loc, stderr, "Unexpected " SV_Fmt ", expected expression", SV_Arg(token.content));
+        fprintf(stderr, LOC_FMT ": NOTE: Preceded by this operator " SV_Fmt "\n", LOC_ARG(lasttoken.loc), SV_Arg(lasttoken.content));
+        return MERR_UNEXPECTED_OPERATOR;
+      }
+      else if (lasttoken.kind == TK_OPEN_PAREN || lasttoken.kind == TK_SEPARATOR)
+      {
+        lexer_dump_err(token.loc, stderr, "Unexpected " SV_Fmt ", expected expression", SV_Arg(token.content));
+        fprintf(stderr, LOC_FMT ": NOTE: Preceded by " SV_Fmt "\n", LOC_ARG(lasttoken.loc), SV_Arg(lasttoken.content));
+        return MERR_UNEXPECTED_OPERATOR;
+      }
+      MathOperator top_op;
+      size_t len;
+      while ((len = arrlenu(parser->operator_stack)) > 0)
+      {
+        top_op = math_parser_last_op(parser);
+        if (top_op.token.kind != TK_OP) break; // drain until (
+        arrput(parser->output_queue, arrpop(parser->operator_stack));
+      }
+      if (len == 0)
+      {
+        lexer_dump_err(token.loc, stderr, "Got separator without function call; multiple equations are not implemented yet");
+        return MERR_UNBALANCED_PARENTHESIS;
+      }
+      assert(parser->operator_stack[len - 1].token.kind == TK_OPEN_PAREN);
+      if (len == 1 || !parser->operator_stack[len - 2].function)
+      {
+        lexer_dump_err(token.loc, stderr, "Got separator without function call in parenthesis");
+        return MERR_UNBALANCED_PARENTHESIS;
+      }
+      parser->operator_stack[len - 2].nargs += 1;
+    } break;
     case TK_OPEN_PAREN: {
       math_parser_check_implicit_mult(parser, token, lasttoken);
       MathOperator op = (MathOperator) {
@@ -173,6 +208,12 @@ static MathParserError math_parser_parse_one_token(MathParser *parser, const Tok
       {
         lexer_dump_err(token.loc, stderr, "Unexpected ), expected expression");
         fprintf(stderr, LOC_FMT ": NOTE: Preceded by this operator " SV_Fmt "\n", LOC_ARG(lasttoken.loc), SV_Arg(lasttoken.content));
+        return MERR_UNEXPECTED_OPERATOR;
+      }
+      else if (lasttoken.kind == TK_OPEN_PAREN || lasttoken.kind == TK_SEPARATOR)
+      {
+        lexer_dump_err(token.loc, stderr, "Unexpected " SV_Fmt ", expected expression", SV_Arg(token.content));
+        fprintf(stderr, LOC_FMT ": NOTE: Preceded by " SV_Fmt "\n", LOC_ARG(lasttoken.loc), SV_Arg(lasttoken.content));
         return MERR_UNEXPECTED_OPERATOR;
       }
       MathOperator top_op;
@@ -325,6 +366,8 @@ return_defer:
 static MathParserError math_parser_handle_function(MathParser *parser, MathOperator *stack, const MathOperator op, MathOperator *res)
 {
   const MathOperator arg = arrpop(stack);
+  MathParserError err;
+  MATH_PARSER_TRY(math_parser_check_operand(arg));
   const double dvalue = arg.token.kind == TK_REAL ? arg.token.as.real.value : (double)arg.token.as.integer.value;
   for (size_t i = 0; i < ALEN(MATH_PARSER_BUILTIN_FUNCTIONS); ++i)
   {
@@ -333,7 +376,12 @@ static MathParserError math_parser_handle_function(MathParser *parser, MathOpera
       double result;
       switch (MATH_PARSER_BUILTIN_FUNCTIONS[i].nargs) {
         case 1: result = MATH_PARSER_BUILTIN_FUNCTIONS[i].as.unary(dvalue); break;
-        case 2: assert(0 && "not implemented"); break;
+        case 2: {
+          const MathOperator arg1 = arrpop(stack);
+          MATH_PARSER_TRY(math_parser_check_operand(arg1));
+          const double dvalue1 = arg1.token.kind == TK_REAL ? arg1.token.as.real.value : (double)arg1.token.as.integer.value;
+          result = MATH_PARSER_BUILTIN_FUNCTIONS[i].as.binary(dvalue1, dvalue);
+        } break;
         default: assert(0 && "unreachable"); break;
       }
       *res = (MathOperator) {
@@ -359,6 +407,8 @@ static MathParserError math_parser_handle_function(MathParser *parser, MathOpera
     }
   }
   return MERR_UNRECOGNIZED_SYMBOL;
+return_defer:
+  return err;
 }
 
 // Implementation
