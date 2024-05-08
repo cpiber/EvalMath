@@ -597,7 +597,6 @@ MathParserError math_parser_eval(MathParser *parser, double *result)
   size = arrlenu(stack);
   if (size == 0)
   {
-    lexer_dump_err(parser->lexer.loc, stderr, "Input empty");
     RETURN(MERR_INPUT_EMPTY);
   }
   if (size > 1)
@@ -617,4 +616,35 @@ void math_parser_free(MathParser *parser)
   assert(parser != NULL);
   arrfree(parser->output_queue);
   arrfree(parser->operator_stack);
+}
+
+void math_parser_clear(MathParser *parser)
+{
+  assert(parser != NULL);
+  arrsetlen(parser->output_queue, 0);
+  arrsetlen(parser->operator_stack, 0);
+}
+
+MathParserError math_parser_evaluate_input(MathParser *parser, Lexer input, double *result)
+{
+  assert(parser != NULL);
+  assert(result != NULL);
+  assert(arrlenu(parser->operator_stack) == 0 && "Unclean parser given");
+  assert(arrlenu(parser->output_queue) == 0 && "Unclean parser given");
+  parser->lexer = input;
+  MathParserError err = MERR_INPUT_EMPTY;
+  while (parser->lexer.content.count > 0)
+  {
+    MATH_PARSER_TRY(math_parser_rpn(parser));
+    err = math_parser_eval(parser, result);
+    if (err == MERR_INPUT_EMPTY) continue;
+    MATH_PARSER_TRY(err);
+    err = MERR_OK;
+  }
+return_defer:
+  if (err == MERR_INPUT_EMPTY)
+  {
+    lexer_dump_err(parser->lexer.loc, stderr, "Input empty");
+  }
+  return err;
 }

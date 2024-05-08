@@ -61,6 +61,7 @@ typedef enum {
   LexerError err = (expr);        \
   if (err != LERR_OK) return err; \
 } while(0)
+#define EMPTY_LEXER ((Lexer) {0})
 
 
 Lexer lexer_init(char *file, String_View content);

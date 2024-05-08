@@ -52,6 +52,16 @@ typedef enum {
 } while(0)
 
 MathParser math_parser_init(Lexer lexer);
+// Converts infix string contained in lexer to RPN notation.
+// Result will be in `output_queue` member, can be evaluated with `math_parser_eval`.
 MathParserError math_parser_rpn(MathParser *parser);
+// Evaluates a previously-parsed result by iterating `output_queue`. Clears the queue.
 MathParserError math_parser_eval(MathParser *parser, double *result);
 void math_parser_free(MathParser *parser);
+// Use to clear all internal data structures. Only necessary after an error.
+// Must set new lexer after use, or MERR_INPUT_EMPTY will be returned.
+void math_parser_clear(MathParser *parser);
+// Takes lexer `input` as new lexer and evaluates all expressions contained (multiple possible).
+// Returns the result of the last expression.
+// Essentially calls `math_parser_rpn` and `math_parser_eval` until all input is consumed.
+MathParserError math_parser_evaluate_input(MathParser *parser, Lexer input, double *result);
