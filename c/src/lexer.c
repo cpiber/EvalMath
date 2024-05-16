@@ -162,6 +162,7 @@ Lexer lexer_init(char *file, String_View content)
   return (Lexer) {
     .file = file,
     .content = content,
+    .start = content,
     .loc = (Location) {
       .file = file,
       .line = 1,

@@ -1,6 +1,7 @@
 #include "rpn.h"
 #include "lexer.h"
 #include <math.h>
+#include <stddef.h>
 #include <stdint.h>
 #include <string.h>
 #define STB_DS_IMPLEMENTATION
@@ -73,12 +74,30 @@ static MathVariable MATH_PARSER_BUILTIN_CONSTANTS[] = {
 
 // Private functions
 
-static bool math_parser_has_function(const MathParser *const parser, String_View name)
+static String_View sv_dup(const String_View sv)
 {
-  (void) parser;
+  char *ndata = malloc(sv.count * sizeof(sv.data[0]));
+  assert(ndata != NULL);
+  memcpy(ndata, sv.data, sv.count * sizeof(sv.data[0]));
+  return (String_View) {
+    .data = ndata,
+    .count = sv.count,
+  };
+}
+
+static bool math_parser_has_function(const MathParser *const parser, String_View name, ssize_t nargs)
+{
   for (size_t i = 0; i < ALEN(MATH_PARSER_BUILTIN_FUNCTIONS); ++i)
   {
-    if (sv_eq_ignorecase(name, MATH_PARSER_BUILTIN_FUNCTIONS[i].name))
+    if (sv_eq_ignorecase(name, MATH_PARSER_BUILTIN_FUNCTIONS[i].name) && (nargs < 0 || nargs == MATH_PARSER_BUILTIN_FUNCTIONS[i].nargs))
+    {
+      return true;
+    }
+  }
+  size_t size = arrlenu(parser->functions);
+  for (size_t i = 0; i < size; ++i)
+  {
+    if (sv_eq_ignorecase(name, parser->functions[i].name) && (nargs < 0 || nargs == parser->functions[i].nargs))
     {
       return true;
     }
@@ -166,7 +185,7 @@ static MathParserError math_parser_parse_one_token(MathParser *parser, const Tok
       Token peek;
       Lexer peek_lexer = parser->lexer;
       bool function = false;
-      if (math_parser_has_function(parser, token.content)) function = true;
+      if (math_parser_has_function(parser, token.content, -1)) function = true;
       else if (math_parser_has_variable(parser, token.content)) function = false;
       else if (lexer_next_token(&peek_lexer, &peek) == LERR_OK && peek.kind == TK_OPEN_PAREN) function = true;
 
@@ -299,10 +318,84 @@ static MathParserError math_parser_parse_one_token(MathParser *parser, const Tok
     } break;
     case TK_ASSIGN: {
       lexer_dump_err(token.loc, stderr, "Unexpected assignment inside expression");
+        fprintf(stderr, LOC_FMT ": NOTE: Assignment is only legal at the beginning of an expression, immediately following a variable, or in a chain of assignments.\n", LOC_ARG(token.loc));
       return MERR_UNEXPECTED_OPERATOR;
     } break;
   }
   return MERR_OK;
+}
+
+static MathParserError math_parser_parse_function_def(MathParser *parser, MathUserFunction *fn)
+{
+  // NOTE: This function will always return OK if input is not faulty
+  // To check if a function was actually parsed, check it's contents
+  LexerError lerr;
+  MathParserError err = MERR_OK;
+  Lexer peek = parser->lexer;
+  Token function_name, peek_token;
+  Token error_token;
+  String_View *arguments = NULL;
+  // doesn't start with a symbol -> give up immediately
+  if ((lerr = lexer_next_token(&peek, &function_name)) != LERR_OK || function_name.kind != TK_SYMBOL) return MERR_OK;
+  if ((lerr = lexer_next_token(&peek, &peek_token)) != LERR_OK || peek_token.kind != TK_OPEN_PAREN) return MERR_OK;
+  // now we get the parameters, first a symbol, then a closing bracket or comma
+  if ((lerr = lexer_peek(&peek, &peek_token)) == LERR_OK && peek_token.kind == TK_CLOSE_PAREN)
+  {
+    lerr = lexer_next_token(&peek, &function_name);
+    assert(lerr == LERR_OK && "how, we just peeked fine");
+    assert(function_name.content.count > 0 && "how did we get here lexer");
+    *fn = (MathUserFunction) {
+      .name = sv_dup(function_name.content),
+      .nargs = 0,
+    };
+    parser->lexer = peek; // make sure RPN starts from here
+    return MERR_OK;
+  }
+  for (;;)
+  {
+    Token argument_name;
+    if ((lerr = lexer_next_token(&peek, &argument_name)) != LERR_OK || argument_name.kind != TK_SYMBOL) goto check_is_fn;
+    String_View name = sv_dup(argument_name.content);
+    arrput(arguments, name);
+    if ((lerr = lexer_next_token(&peek, &peek_token)) != LERR_OK) RETURN(MERR_OK);
+    if (peek_token.kind == TK_SEPARATOR) continue; // next argument
+    if (peek_token.kind == TK_CLOSE_PAREN) break; // done
+    goto check_is_fn;
+  }
+  if ((lerr = lexer_next_token(&peek, &peek_token)) != LERR_OK || peek_token.kind != TK_ASSIGN) RETURN(MERR_OK);
+  if (math_parser_has_function(parser, function_name.content, arrlenu(arguments)))
+  {
+    lexer_dump_err(function_name.loc, stderr, "Function " SV_Fmt "already defined", SV_Arg(function_name.content));
+    return MERR_SYMBOL_ALREADY_SET;
+  }
+  *fn = (MathUserFunction) {
+    .name = sv_dup(function_name.content),
+    .nargs = arrlenu(arguments),
+    .argument_names = arguments,
+  };
+  printf("FN: " SV_Fmt ", args: %zu\n", SV_Arg(fn->name), arrlen(fn->argument_names));
+  arguments = NULL;
+  parser->lexer = peek; // make sure RPN starts from here
+
+return_defer:
+  if (arguments) arrfree(arguments); // error case, make sure all arguments are free'd properly
+  return err;
+
+check_is_fn:
+  // error case
+  // it looked like a function definition, but we got something that wasn't a valid argument definition
+  // now check if it actually was a function definition, or if we are trying to parse a function call actually
+  error_token = peek_token;
+  do {
+    if (peek_token.kind == TK_CLOSE_PAREN)
+    {
+      // got a ) followed by something that wasn't =, assume this is not a function definition and bail
+      if ((lerr = lexer_next_token(&peek, &peek_token)) != LERR_OK || peek_token.kind != TK_ASSIGN) return MERR_OK;
+      lexer_dump_err(error_token.loc, stderr, "Token %s not valid in function definition, expected a list of arguments, got " SV_Fmt, lexer_strtokenkind(error_token.kind), SV_Arg(error_token.content));
+      RETURN(MERR_OPERATOR_ERROR);
+    }
+  } while ((lerr = lexer_next_token(&peek, &peek_token)) == LERR_OK);
+  goto return_defer;
 }
 
 static MathParserError math_parser_check_operand(const MathOperator operand, double *doubleval)
@@ -464,12 +557,21 @@ static MathParserError math_parser_handle_function(MathParser *parser, const Mat
       return MERR_OK;
     }
   }
+  // TODO: Implement calling function RPN
   lexer_dump_err(op.token.loc, stderr, "Unrecognized function " SV_Fmt " with %zu argument(s)", SV_Arg(op.token.content), op.nargs);
   for (size_t i = 0; i < ALEN(MATH_PARSER_BUILTIN_FUNCTIONS); ++i)
   {
     if (sv_eq_ignorecase(op.token.content, MATH_PARSER_BUILTIN_FUNCTIONS[i].name))
     {
       fprintf(stderr, "NOTE: This function exists with %zu argument(s)\n", MATH_PARSER_BUILTIN_FUNCTIONS[i].nargs);
+    }
+  }
+  size_t size = arrlenu(parser->functions);
+  for (size_t i = 0; i < size; ++i)
+  {
+    if (sv_eq_ignorecase(op.token.content, parser->functions[i].name))
+    {
+      fprintf(stderr, "NOTE: This function exists with %zu argument(s)\n", parser->functions[i].nargs);
     }
   }
   return MERR_UNRECOGNIZED_SYMBOL;
@@ -499,6 +601,45 @@ static MathParserError math_parser_handle_variable(MathParser *parser, const Mat
   return MERR_UNRECOGNIZED_SYMBOL;
 }
 
+static void math_parser_output_dup(MathParser *parser, MathUserFunction *fn)
+{
+  String_View new_full = sv_dup(parser->lexer.start);
+  fn->lexer_content = new_full;
+  ptrdiff_t diff = new_full.data - parser->lexer.start.data;
+  // now update all strings to new pointer
+  size_t size = arrlenu(parser->output_queue);
+  for (size_t i = 0; i < size; ++i)
+  {
+    parser->output_queue[i].token.content.data += diff;
+  }
+  fn->rpn = parser->output_queue;
+  parser->output_queue = NULL;
+  MathOperator zero = (MathOperator) {
+    .token = {
+      .kind = TK_INTEGER,
+      .as = {
+        .integer = {
+          .value = 0,
+        },
+      },
+    },
+  };
+  arrput(parser->output_queue, zero);
+}
+
+static void math_parser_function_free(MathUserFunction function)
+{
+  free((char *)function.name.data);
+  size_t size = arrlenu(function.argument_names);
+  for (size_t j = 0; j < size; ++j)
+  {
+    free((char *)function.argument_names[j].data);
+  }
+  arrfree(function.argument_names);
+  free((char *)function.lexer_content.data);
+  arrfree(function.rpn);
+}
+
 // Implementation
 
 MathParser math_parser_init(Lexer lexer)
@@ -513,15 +654,17 @@ MathParser math_parser_init(Lexer lexer)
 MathParserError math_parser_rpn(MathParser *parser)
 {
   assert(parser != NULL);
-  LexerError err;
+  LexerError lerr;
+  MathParserError err = MERR_OK;
   Token token;
   Token lasttoken = (Token) {
     .kind = TK_OPEN_PAREN,
   };
+  MathUserFunction function = {0};
   parser->paren_depth = 0;
   {
     Lexer peek = parser->lexer;
-    while ((err = lexer_next_token(&peek, &token)) == LERR_OK)
+    while ((lerr = lexer_next_token(&peek, &token)) == LERR_OK)
     {
       if (token.kind != TK_SYMBOL) break;
       Token peektoken;
@@ -537,21 +680,27 @@ MathParserError math_parser_rpn(MathParser *parser)
       parser->lexer = peek;
     }
   }
-  while ((err = lexer_next_token(&parser->lexer, &token)) == LERR_OK)
+  {
+    // Nothing happened yet -> function definition still legal
+    if (arrlenu(parser->operator_stack) == 0)
+    {
+      MATH_PARSER_TRY(math_parser_parse_function_def(parser, &function));
+    }
+  }
+  while ((lerr = lexer_next_token(&parser->lexer, &token)) == LERR_OK)
   {
     // separate equations
     if (token.kind == TK_SEPARATOR && parser->paren_depth == 0) break;
-    MathParserError err = math_parser_parse_one_token(parser, token, lasttoken);
-    if (err != MERR_OK) return err;
+    MATH_PARSER_TRY(math_parser_parse_one_token(parser, token, lasttoken));
     lasttoken = token;
   }
-  if (err != LERR_EOF && err != LERR_OK)
-    return MERR_LEXER_ERROR;
+  if (lerr != LERR_EOF && lerr != LERR_OK)
+    RETURN(MERR_LEXER_ERROR);
   if (lasttoken.kind == TK_OP)
   {
     lexer_dump_err(parser->lexer.loc, stderr, "Unexpected end of input, expected expression");
     fprintf(stderr, LOC_FMT ": NOTE: Preceded by this operator " SV_Fmt "\n", LOC_ARG(lasttoken.loc), SV_Arg(lasttoken.content));
-    return MERR_UNEXPECTED_OPERATOR;
+    RETURN(MERR_UNEXPECTED_OPERATOR);
   }
   MathOperator top_op;
   while (arrlenu(parser->operator_stack) > 0)
@@ -560,12 +709,21 @@ MathParserError math_parser_rpn(MathParser *parser)
     if (top_op.token.kind != TK_OP && !top_op.assignment)
     {
       lexer_dump_err(top_op.token.loc, stderr, "Unbalanced parenthesis, this ( was not closed");
-      return MERR_UNBALANCED_PARENTHESIS;
+      RETURN(MERR_UNBALANCED_PARENTHESIS);
     }
     arrput(parser->output_queue, arrpop(parser->operator_stack));
   }
   assert(parser->paren_depth == 0);
-  return MERR_OK;
+  if (function.name.count > 0)
+  {
+    // this moves the output_queue to the function
+    math_parser_output_dup(parser, &function);
+    arrput(parser->functions, function);
+    return err; // NOTE: make sure not to go to defer, since it frees us
+  }
+return_defer:
+  math_parser_function_free(function);
+  return err;
 }
 
 MathParserError math_parser_eval(MathParser *parser, double *result)
@@ -667,6 +825,13 @@ void math_parser_free(MathParser *parser)
     free((void *) parser->variables[i].name.data);
   }
   arrfree(parser->variables);
+  size = arrlenu(parser->functions);
+  for (size_t i = 0; i < size; ++i)
+  {
+    MathUserFunction function = parser->functions[i];
+    math_parser_function_free(function);
+  }
+  arrfree(parser->functions);
 }
 
 void math_parser_clear(MathParser *parser)
@@ -703,14 +868,8 @@ return_defer:
 bool math_parser_set_var(MathParser *parser, String_View name, double value)
 {
   if (math_parser_get_var(parser, name, NULL)) return false;
-  char *ndata = malloc(name.count * sizeof(name.data[0]));
-  assert(ndata != NULL);
-  memcpy(ndata, name.data, name.count * sizeof(name.data[0]));
   MathVariable var = (MathVariable) {
-    .name = {
-      .data = ndata,
-      .count = name.count,
-    },
+    .name = sv_dup(name),
     .value = value,
   };
   arrput(parser->variables, var);

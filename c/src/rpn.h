@@ -23,6 +23,14 @@ typedef struct {
 
 typedef struct {
   String_View name;
+  size_t nargs;
+  String_View *argument_names;
+  String_View lexer_content;
+  MathOperator *rpn;
+} MathUserFunction;
+
+typedef struct {
+  String_View name;
   double value;
 } MathVariable;
 
@@ -31,6 +39,7 @@ typedef struct {
   MathOperator *output_queue;
   MathOperator *operator_stack;
   MathVariable *variables;
+  MathUserFunction *functions;
   size_t paren_depth;
 } MathParser;
 

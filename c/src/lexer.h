@@ -48,6 +48,7 @@ typedef struct {
 typedef struct {
   const char *file; // 0-terminated
   String_View content;
+  String_View start;
   Location loc;
 } Lexer;
 
