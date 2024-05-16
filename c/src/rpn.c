@@ -336,6 +336,7 @@ static MathParserError math_parser_parse_function_def(MathParser *parser, MathUs
   Token function_name, peek_token;
   Token error_token;
   String_View *arguments = NULL;
+  size_t size;
   // doesn't start with a symbol -> give up immediately
   if ((lerr = lexer_next_token(&peek, &function_name)) != LERR_OK || function_name.kind != TK_SYMBOL) return MERR_OK;
   if ((lerr = lexer_next_token(&peek, &peek_token)) != LERR_OK || peek_token.kind != TK_OPEN_PAREN) return MERR_OK;
@@ -367,7 +368,7 @@ static MathParserError math_parser_parse_function_def(MathParser *parser, MathUs
   if (math_parser_has_function(parser, function_name.content, arrlenu(arguments)))
   {
     lexer_dump_err(function_name.loc, stderr, "Function " SV_Fmt " already defined", SV_Arg(function_name.content));
-    return MERR_SYMBOL_ALREADY_SET;
+    RETURN(MERR_SYMBOL_ALREADY_SET);
   }
   *fn = (MathUserFunction) {
     .name = sv_dup(function_name.content),
@@ -378,6 +379,11 @@ static MathParserError math_parser_parse_function_def(MathParser *parser, MathUs
   parser->lexer = peek; // make sure RPN starts from here
 
 return_defer:
+  size = arrlenu(arguments);
+  for (size_t i = 0; i < size; ++i)
+  {
+    free((char *)arguments[i].data);
+  }
   if (arguments) arrfree(arguments); // error case, make sure all arguments are free'd properly
   return err;
 
