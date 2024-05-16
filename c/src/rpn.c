@@ -3,6 +3,7 @@
 #include <math.h>
 #include <stddef.h>
 #include <stdint.h>
+#include <stdio.h>
 #include <string.h>
 #define STB_DS_IMPLEMENTATION
 #include "stb_ds.h"
@@ -365,7 +366,7 @@ static MathParserError math_parser_parse_function_def(MathParser *parser, MathUs
   if ((lerr = lexer_next_token(&peek, &peek_token)) != LERR_OK || peek_token.kind != TK_ASSIGN) RETURN(MERR_OK);
   if (math_parser_has_function(parser, function_name.content, arrlenu(arguments)))
   {
-    lexer_dump_err(function_name.loc, stderr, "Function " SV_Fmt "already defined", SV_Arg(function_name.content));
+    lexer_dump_err(function_name.loc, stderr, "Function " SV_Fmt " already defined", SV_Arg(function_name.content));
     return MERR_SYMBOL_ALREADY_SET;
   }
   *fn = (MathUserFunction) {
@@ -373,7 +374,6 @@ static MathParserError math_parser_parse_function_def(MathParser *parser, MathUs
     .nargs = arrlenu(arguments),
     .argument_names = arguments,
   };
-  printf("FN: " SV_Fmt ", args: %zu\n", SV_Arg(fn->name), arrlen(fn->argument_names));
   arguments = NULL;
   parser->lexer = peek; // make sure RPN starts from here
 
@@ -522,16 +522,18 @@ return_defer:
   return err;
 }
 
+static MathParserError math_parser_eval_one(MathParser *parser, MathOperator *queue, size_t *queue_last, MathVariable *vars, double *result);
 static MathParserError math_parser_handle_function(MathParser *parser, const MathOperator *stack, const MathOperator op, MathOperator *res)
 {
-  const MathOperator arg = arrpop(stack);
   MathParserError err;
   double dvalue;
-  MATH_PARSER_TRY(math_parser_check_operand(arg, &dvalue));
+  MathVariable *argument_list = NULL;
   for (size_t i = 0; i < ALEN(MATH_PARSER_BUILTIN_FUNCTIONS); ++i)
   {
     if (sv_eq_ignorecase(op.token.content, MATH_PARSER_BUILTIN_FUNCTIONS[i].name) && op.nargs == MATH_PARSER_BUILTIN_FUNCTIONS[i].nargs)
     {
+      const MathOperator arg = arrpop(stack);
+      MATH_PARSER_TRY(math_parser_check_operand(arg, &dvalue));
       double result;
       switch (MATH_PARSER_BUILTIN_FUNCTIONS[i].nargs) {
         case 1: result = MATH_PARSER_BUILTIN_FUNCTIONS[i].as.unary(dvalue); break;
@@ -554,10 +556,44 @@ static MathParserError math_parser_handle_function(MathParser *parser, const Mat
           }
         }
       };
-      return MERR_OK;
+      RETURN(MERR_OK);
     }
   }
-  // TODO: Implement calling function RPN
+  size_t size = arrlenu(parser->functions);
+  for (size_t i = 0; i < size; ++i)
+  {
+    if (sv_eq_ignorecase(op.token.content, parser->functions[i].name) && op.nargs == parser->functions[i].nargs)
+    {
+      double result;
+      size_t nargs = arrlenu(parser->functions->argument_names);
+      assert(nargs == op.nargs);
+      arrsetcap(argument_list, nargs);
+      for (size_t j = 0; j < nargs; ++j)
+      {
+        // arguments are in reverse order
+        const MathOperator arg = arrpop(stack);
+        MATH_PARSER_TRY(math_parser_check_operand(arg, &dvalue));
+        MathVariable value = (MathVariable) {
+          .name = parser->functions[i].argument_names[nargs - j - 1],
+          .value = dvalue,
+        };
+        arrput(argument_list, value);
+      }
+      MATH_PARSER_TRY(math_parser_eval_one(parser, parser->functions[i].rpn, NULL, argument_list, &result));
+      *res = (MathOperator) {
+        .token = {
+          .kind = TK_REAL,
+          .loc = op.token.loc,
+          .as = {
+            .real = {
+              .value = result,
+            }
+          }
+        }
+      };
+      RETURN(MERR_OK);
+    }
+  }
   lexer_dump_err(op.token.loc, stderr, "Unrecognized function " SV_Fmt " with %zu argument(s)", SV_Arg(op.token.content), op.nargs);
   for (size_t i = 0; i < ALEN(MATH_PARSER_BUILTIN_FUNCTIONS); ++i)
   {
@@ -566,7 +602,6 @@ static MathParserError math_parser_handle_function(MathParser *parser, const Mat
       fprintf(stderr, "NOTE: This function exists with %zu argument(s)\n", MATH_PARSER_BUILTIN_FUNCTIONS[i].nargs);
     }
   }
-  size_t size = arrlenu(parser->functions);
   for (size_t i = 0; i < size; ++i)
   {
     if (sv_eq_ignorecase(op.token.content, parser->functions[i].name))
@@ -576,10 +611,11 @@ static MathParserError math_parser_handle_function(MathParser *parser, const Mat
   }
   return MERR_UNRECOGNIZED_SYMBOL;
 return_defer:
+  arrfree(argument_list);
   return err;
 }
 
-static MathParserError math_parser_handle_variable(MathParser *parser, const MathOperator var, MathOperator *res)
+static MathParserError math_parser_handle_variable(MathParser *parser, const MathOperator var, const MathVariable *additional_vars, MathOperator *res)
 {
   double value;
   if (math_parser_get_var(parser, var.token.content, &value))
@@ -596,6 +632,25 @@ static MathParserError math_parser_handle_variable(MathParser *parser, const Mat
       }
     };
     return MERR_OK;
+  }
+  size_t size = arrlenu(additional_vars);
+  for (size_t i = 0; i < size; ++i)
+  {
+    if (sv_eq_ignorecase(var.token.content, additional_vars[i].name))
+    {
+      *res = (MathOperator) {
+        .token = {
+          .kind = TK_REAL,
+          .loc = var.token.loc,
+          .as = {
+            .real = {
+              .value = additional_vars[i].value,
+            }
+          }
+        }
+      };
+      return MERR_OK;
+    }
   }
   lexer_dump_err(var.token.loc, stderr, "Unrecognized variable " SV_Fmt, SV_Arg(var.token.content));
   return MERR_UNRECOGNIZED_SYMBOL;
@@ -726,16 +781,15 @@ return_defer:
   return err;
 }
 
-MathParserError math_parser_eval(MathParser *parser, double *result)
+static MathParserError math_parser_eval_one(MathParser *parser, MathOperator *queue, size_t *queue_last, MathVariable *vars, double *result)
 {
-  assert(parser != NULL);
   MathOperator op, opresult;
   MathOperator *stack = NULL;
   MathParserError err = MERR_OK;
-  size_t size = arrlenu(parser->output_queue), i = 0;
+  size_t size = arrlenu(queue), i = 0;
   for (; i < size; ++i)
   {
-    op = parser->output_queue[i];
+    op = queue[i];
     if (op.assignment) break;
     if (op.token.kind == TK_INTEGER || op.token.kind == TK_REAL)
     {
@@ -744,7 +798,7 @@ MathParserError math_parser_eval(MathParser *parser, double *result)
     }
     else if (op.token.kind == TK_SYMBOL && !op.function)
     {
-      MATH_PARSER_TRY(math_parser_handle_variable(parser, op, &opresult));
+      MATH_PARSER_TRY(math_parser_handle_variable(parser, op, vars, &opresult));
       arrput(stack, opresult);
       continue;
     }
@@ -790,8 +844,21 @@ MathParserError math_parser_eval(MathParser *parser, double *result)
   }
   opresult = arrpop(stack);
   MATH_PARSER_TRY(math_parser_check_operand(opresult, result));
+  if (queue_last) *queue_last = i;
+return_defer:
+  arrfree(stack);
+  return err;
+}
+
+MathParserError math_parser_eval(MathParser *parser, double *result)
+{
+  assert(parser != NULL);
+  size_t i;
+  MathParserError err = MERR_OK;
+  MathOperator op;
+  MATH_PARSER_TRY(math_parser_eval_one(parser, parser->output_queue, &i, NULL, result));
   // handle assignments now
-  size = arrlenu(parser->output_queue);
+  size_t size = arrlenu(parser->output_queue);
   for (; i < size; ++i)
   {
     op = parser->output_queue[i];
@@ -810,7 +877,6 @@ MathParserError math_parser_eval(MathParser *parser, double *result)
   // allows to reuse allocated memory for next run
   arrsetlen(parser->output_queue, 0);
 return_defer:
-  arrfree(stack);
   return err;
 }
 
